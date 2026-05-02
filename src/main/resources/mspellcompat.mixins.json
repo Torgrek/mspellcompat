@@ -1,0 +1,24 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.misp.mspellcompat.mixin",
+  "plugin": "com.misp.mspellcompat.mixin.CompatMixinPlugin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "flowingfluids.MixinFlowingFluidsLocalWeather",
+    "flowingfluids.MixinSimpleCloudsRainSurfaceWater",
+    "lso.MixinLsoFiniteWaterDrinking",
+    "lso.MixinLsoFiniteWaterBlockDrinking",
+    "lso.MixinLsoCanteenFiniteWater",
+    "burnt.MixinBurntAdjacentFluidWater",
+    "burnt.MixinBurntSimpleCloudsRain",
+    "sable.MixinSablePlotFluidTick",
+    "modularbackpacks.MixinModularBackpacksTankSlotEvents",
+    "modularbackpacks.MixinModularBackpacksNativeTickGuard"
+  ],
+  "client": [],
+  "server": [],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
