@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.misp.frostypatches.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "refmap": "frostypatches.refmap.json",
+  "mixins": [
+    "epicdeathscreen.DeathCinematicControllerMixin",
+    "epicdeathscreen.DeathCinematicRendererMixin",
+    "epicdeathscreen.DeathControllerBridge"
+  ],
+  "client": [],
+  "server": []
+}
