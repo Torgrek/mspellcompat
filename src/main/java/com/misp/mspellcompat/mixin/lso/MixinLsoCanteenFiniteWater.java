@@ -23,10 +23,8 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import traben.flowing_fluids.FFFluidUtils;
 
-
 @Mixin(targets = "sfiomn.legendarysurvivaloverhaul.common.items.drink.CanteenItem", remap = false)
 public abstract class MixinLsoCanteenFiniteWater {
-
 
     @Inject(
             method = "useOn(Lnet/minecraft/world/item/context/UseOnContext;)Lnet/minecraft/world/InteractionResult;",
@@ -56,7 +54,6 @@ public abstract class MixinLsoCanteenFiniteWater {
         mspell$consumeWaterAt(level, context.getClickedPos());
     }
 
-
     @Inject(
             method = "use(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;)Lnet/minecraft/world/InteractionResultHolder;",
             at = @At(
@@ -80,7 +77,6 @@ public abstract class MixinLsoCanteenFiniteWater {
         if (level.isClientSide || !MSpellCompatConfig.LSO_CANTEEN_CONSUME_FINITE_WATER.get()) {
             return;
         }
-
 
         double reach = Math.max(
                 3.0D,

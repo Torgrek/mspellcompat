@@ -19,7 +19,6 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import traben.flowing_fluids.FFFluidUtils;
 
-
 @Mixin(value = ServerLevel.class, remap = false)
 public abstract class MixinSimpleCloudsRainSurfaceWater {
     @Inject(
@@ -101,7 +100,6 @@ public abstract class MixinSimpleCloudsRainSurfaceWater {
                     "mode=vanilla,pos=" + pos + ",result=" + result);
             return result;
         }
-
 
         var precipitation = clouds.getPrecipitationAt(pos);
         boolean result = Boolean.TRUE.equals(precipitation.getLeft())

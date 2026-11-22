@@ -1,6 +1,7 @@
 package com.misp.mspellcompat.client;
 
 import com.misp.mspellcompat.config.MSpellCompatConfig;
+import com.misp.mspellcompat.config.SableFluidPhysicsConfig;
 import com.misp.mspellcompat.util.MSpellCompatDebug;
 import me.shedaniel.clothconfig2.api.ConfigBuilder;
 import me.shedaniel.clothconfig2.api.ConfigCategory;
@@ -20,6 +21,7 @@ public final class MSpellCompatClothConfigScreen {
                 .setTitle(Component.translatable("mspellcompat.gui.title"))
                 .setSavingRunnable(() -> {
                     MSpellCompatConfig.SPEC.save();
+                    SableFluidPhysicsConfig.SPEC.save();
                     MSpellCompatDebug.refreshFromConfig();
                     MSpellCompatDebug.log("client_config", "settings_saved", "debugLogging="
                             + MSpellCompatConfig.DEBUG_LOGGING.get());
@@ -36,9 +38,6 @@ public final class MSpellCompatClothConfigScreen {
         ConfigCategory weather = builder.getOrCreateCategory(
                 Component.translatable("mspellcompat.gui.category.weather")
         );
-        weather.addEntry(entries.startTextDescription(
-                Component.translatable("mspellcompat.gui.notice.server_config")
-        ).build());
         addBoolean(weather, entries, "mspellcompat.gui.weather.local_refill.tooltip",
                 "mspellcompat.gui.weather.local_refill", MSpellCompatConfig.FLOWING_FLUIDS_USE_LOCAL_WEATHER);
         addBoolean(weather, entries, "mspellcompat.gui.weather.create_surface_water.tooltip",
@@ -74,6 +73,45 @@ public final class MSpellCompatClothConfigScreen {
         addBoolean(burnt, entries, "mspellcompat.gui.burnt.local_rain.tooltip",
                 "mspellcompat.gui.burnt.local_rain", MSpellCompatConfig.BURNT_REQUIRE_LOCAL_SIMPLE_CLOUDS_RAIN);
 
+        ConfigCategory sable = builder.getOrCreateCategory(
+                Component.translatable("mspellcompat.gui.category.sable_impact")
+        );
+        addBoolean(sable, entries, "mspellcompat.gui.sable_impact.enabled.tooltip",
+                "mspellcompat.gui.sable_impact.enabled", SableFluidPhysicsConfig.IMPACT_DISPLACEMENT_ENABLED);
+        addDouble(sable, entries, "mspellcompat.gui.sable_impact.minimum_mass.tooltip",
+                "mspellcompat.gui.sable_impact.minimum_mass", SableFluidPhysicsConfig.IMPACT_MINIMUM_MASS,
+                0.0, 1.0e9);
+        addDouble(sable, entries, "mspellcompat.gui.sable_impact.minimum_speed.tooltip",
+                "mspellcompat.gui.sable_impact.minimum_speed", SableFluidPhysicsConfig.IMPACT_MINIMUM_SPEED,
+                0.0, 1000.0);
+        addInt(sable, entries, "mspellcompat.gui.sable_impact.splash_radius.tooltip",
+                "mspellcompat.gui.sable_impact.splash_radius", SableFluidPhysicsConfig.IMPACT_SPLASH_RADIUS,
+                1, 8);
+        addInt(sable, entries, "mspellcompat.gui.sable_impact.max_source_blocks.tooltip",
+                "mspellcompat.gui.sable_impact.max_source_blocks",
+                SableFluidPhysicsConfig.IMPACT_MAX_SOURCE_BLOCKS_PER_EVENT, 1, 128);
+        addInt(sable, entries, "mspellcompat.gui.sable_impact.units_per_splash.tooltip",
+                "mspellcompat.gui.sable_impact.units_per_splash",
+                SableFluidPhysicsConfig.IMPACT_SPLASH_UNITS_PER_BLOCK, 1, 8);
+        addInt(sable, entries, "mspellcompat.gui.sable_impact.max_units_per_tick.tooltip",
+                "mspellcompat.gui.sable_impact.max_units_per_tick",
+                SableFluidPhysicsConfig.IMPACT_MAX_SPLASH_UNITS_PER_TICK, 1, 4096);
+        addInt(sable, entries, "mspellcompat.gui.sable_impact.cooldown.tooltip",
+                "mspellcompat.gui.sable_impact.cooldown", SableFluidPhysicsConfig.IMPACT_COOLDOWN_TICKS,
+                1, 1200);
+        addInt(sable, entries, "mspellcompat.gui.sable_impact.max_events_per_tick.tooltip",
+                "mspellcompat.gui.sable_impact.max_events_per_tick",
+                SableFluidPhysicsConfig.IMPACT_MAX_EVENTS_PER_TICK, 1, 64);
+        addInt(sable, entries, "mspellcompat.gui.sable_impact.water_loss_percent.tooltip",
+                "mspellcompat.gui.sable_impact.water_loss_percent",
+                SableFluidPhysicsConfig.IMPACT_WATER_LOSS_PERCENT, 0, 100);
+        addBoolean(sable, entries, "mspellcompat.gui.sable_impact.displace_source_water.tooltip",
+                "mspellcompat.gui.sable_impact.displace_source_water",
+                SableFluidPhysicsConfig.IMPACT_DISPLACE_SOURCE_WATER);
+        addBoolean(sable, entries, "mspellcompat.gui.sable_impact.use_sable_beyond_mass.tooltip",
+                "mspellcompat.gui.sable_impact.use_sable_beyond_mass",
+                SableFluidPhysicsConfig.IMPACT_USE_SABLE_BEYOND_MASS);
+
         return builder.build();
     }
 
@@ -93,6 +131,17 @@ public final class MSpellCompatClothConfigScreen {
             String tooltipKey, String labelKey, ModConfigSpec.IntValue value, int min, int max
     ) {
         category.addEntry(entries.startIntField(Component.translatable(labelKey), value.get())
+                .setMin(min).setMax(max).setDefaultValue(value.getDefault())
+                .setTooltip(Component.translatable(tooltipKey))
+                .setSaveConsumer(value::set)
+                .build());
+    }
+
+    private static void addDouble(
+            ConfigCategory category, ConfigEntryBuilder entries,
+            String tooltipKey, String labelKey, ModConfigSpec.DoubleValue value, double min, double max
+    ) {
+        category.addEntry(entries.startDoubleField(Component.translatable(labelKey), value.get())
                 .setMin(min).setMax(max).setDefaultValue(value.getDefault())
                 .setTooltip(Component.translatable(tooltipKey))
                 .setSaveConsumer(value::set)

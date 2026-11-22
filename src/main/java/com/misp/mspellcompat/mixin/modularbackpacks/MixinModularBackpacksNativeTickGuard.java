@@ -27,7 +27,6 @@ public abstract class MixinModularBackpacksNativeTickGuard {
             cir.setReturnValue(false);
         } else if (decision == ModularBackpacksFractionalTankTransfer.NativeTickDecision.INITIALIZED) {
 
-
             cir.setReturnValue(true);
         }
     }

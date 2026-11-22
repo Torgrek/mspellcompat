@@ -26,22 +26,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 
-
 @EventBusSubscriber(modid = "mspellcompat")
 public final class SableFluidMassIntegration {
 
     private static final String SABLE_CONTAINER_CLASS =
             "dev.ryanhcode.sable.api.sublevel.SubLevelContainer";
 
-
     private static final long SCAN_INTERVAL_TICKS = 5L;
-
 
     private static final long MAX_SCAN_CELLS = 262_144L;
 
-
     private static final long HULL_REFRESH_TICKS = 100L;
-
 
     private static final double WATER_MASS_PER_FULL_BLOCK = 1.0;
 
@@ -101,7 +96,6 @@ public final class SableFluidMassIntegration {
                 + ",enumerationComplete=" + enumerationComplete + ",activeSublevels=" + activeKeys.size()
                 + ",trackedSublevels=" + serverStates.size());
 
-
         if (enumerationComplete) {
             serverStates.keySet().removeIf(key -> !activeKeys.contains(key));
         }
@@ -132,7 +126,6 @@ public final class SableFluidMassIntegration {
                 return;
             }
 
-
             BlockPos center = (BlockPos) invoke(plot, "getCenterBlock");
             Object rawAccessor = invoke(plot, "getEmbeddedLevelAccessor");
             if (!(rawAccessor instanceof LevelAccessor accessor)) {
@@ -152,7 +145,6 @@ public final class SableFluidMassIntegration {
                     minX - center.getX(), minY - center.getY(), minZ - center.getZ(),
                     maxX - center.getX(), maxY - center.getY(), maxZ - center.getZ());
 
-
             Object selfMassTracker = invoke(sublevel, "getSelfMassTracker");
             if (selfMassTracker == null) {
                 MSpellCompatDebug.log("sable_mass", "sublevel_skip", "key=" + key + ",reason=no_mass_tracker");
@@ -171,7 +163,6 @@ public final class SableFluidMassIntegration {
                 state.hullBounds = deriveHullBounds(accessor, localBounds);
                 state.lastHullScanTick = gameTime;
             }
-
 
             if (state.hullBounds == null) {
                 MSpellCompatDebug.log("sable_mass", "hull_missing", "key=" + key + ",storage=" + storage);
@@ -218,7 +209,6 @@ public final class SableFluidMassIntegration {
                             + ",deltaUnits=" + deltaUnits + ",deltaMass=" + deltaMass);
                 }
             } catch (Throwable applyFailure) {
-
 
                 for (int i = applied.size() - 1; i >= 0; i--) {
                     AppliedDelta delta = applied.get(i);

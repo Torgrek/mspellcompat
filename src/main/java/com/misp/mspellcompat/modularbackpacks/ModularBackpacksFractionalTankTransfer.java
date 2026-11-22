@@ -25,7 +25,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-
 public final class ModularBackpacksFractionalTankTransfer {
     private static final int INPUT_SLOT = 0;
     private static final int OUTPUT_SLOT = 1;
@@ -43,7 +42,6 @@ public final class ModularBackpacksFractionalTankTransfer {
     private ModularBackpacksFractionalTankTransfer() {
     }
 
-
     private static void debugLog(String message, Object... arguments) {
         MSpellCompatDebug.debug(message, arguments);
     }
@@ -60,7 +58,6 @@ public final class ModularBackpacksFractionalTankTransfer {
         SUPPRESS,
         INITIALIZED
     }
-
 
     public static NativeTickDecision prepareNativeTick(Player player, ItemStack tankStack) {
         if (player == null || tankStack == null || tankStack.isEmpty() || player.level().isClientSide) {
@@ -80,14 +77,12 @@ public final class ModularBackpacksFractionalTankTransfer {
         return NativeTickDecision.INITIALIZED;
     }
 
-
     public static boolean refreshNativeTickCache(Player player, ItemStack tankStack) {
         if (player == null || tankStack == null || tankStack.isEmpty() || player.level().isClientSide) {
             return false;
         }
         return writeNativeGuardCache(tankStack, computeNativeSuppression(player, tankStack));
     }
-
 
     public static ItemStack snapshotTankInput(Player player, ItemStack tankStack) {
         if (player == null || tankStack == null || tankStack.isEmpty() || !isTankStack(tankStack)) {
@@ -131,7 +126,6 @@ public final class ModularBackpacksFractionalTankTransfer {
             return false;
         }
 
-
         if (input.is(Items.BUCKET)) {
             IFluidHandler tank = tankStack.getCapability(Capabilities.FluidHandler.ITEM);
             if (tank == null) {
@@ -173,12 +167,10 @@ public final class ModularBackpacksFractionalTankTransfer {
         return true;
     }
 
-
     public static boolean onTankSlotInteraction(Player player, ItemStack tankStack) {
         if (player == null || tankStack == null || tankStack.isEmpty() || player.level().isClientSide) {
             return false;
         }
-
 
         if (getTankAccessors(tankStack) == null) {
             return false;
@@ -197,7 +189,6 @@ public final class ModularBackpacksFractionalTankTransfer {
         ItemStackHandler inventory = createTankInventory(tankStack, player.registryAccess());
         ItemStack input = inventory.getStackInSlot(INPUT_SLOT);
         ItemStack output = inventory.getStackInSlot(OUTPUT_SLOT);
-
 
         if (!input.is(Items.BUCKET)
                 && input.getItem() instanceof FFBucketItem flowingBucket
@@ -259,7 +250,6 @@ public final class ModularBackpacksFractionalTankTransfer {
                 return false;
             }
 
-
             int availableUnits = Math.min(LEVELS_PER_BUCKET,
                     simulatedTankFluid.getAmount() / MB_PER_LEVEL);
             if (availableUnits <= 0) {
@@ -306,7 +296,6 @@ public final class ModularBackpacksFractionalTankTransfer {
                     mergeRemainderIntoOutput ? "input+output-remainder" : (replaceInputWithResult ? "input" : "output"));
             return true;
         }
-
 
         return false;
     }

@@ -85,7 +85,6 @@ public final class MSpellCompatDebug {
         }
     }
 
-
     public static void debug(String message, Object... arguments) {
         if (isDebugLoggingDisabled()) return;
         LOGGER.debug(message, arguments);

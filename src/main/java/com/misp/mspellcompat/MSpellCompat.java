@@ -1,6 +1,8 @@
 package com.misp.mspellcompat;
 
 import com.misp.mspellcompat.config.MSpellCompatConfig;
+import com.misp.mspellcompat.config.SableFluidPhysicsConfig;
+import com.misp.mspellcompat.sable.SableFluidImpactDisplacement;
 import com.misp.mspellcompat.sable.SableFluidRuntimeConfig;
 import com.misp.mspellcompat.sable.SableFluidTransport;
 import com.misp.mspellcompat.util.MSpellCompatDebug;
@@ -22,12 +24,18 @@ public final class MSpellCompat {
                 "mspellcompat-server.toml"
         );
         modContainer.registerConfig(
+                ModConfig.Type.COMMON,
+                SableFluidPhysicsConfig.SPEC,
+                "mspellcompat-sable-fluid.toml"
+        );
+        modContainer.registerConfig(
                 ModConfig.Type.SERVER,
                 SableFluidRuntimeConfig.SPEC,
                 "mspellcompat-sable-fluids-server.toml"
         );
         modEventBus.addListener(MSpellCompat::onConfigLoading);
         modEventBus.addListener(MSpellCompat::onConfigReloading);
+        NeoForge.EVENT_BUS.addListener(SableFluidImpactDisplacement::onServerTickPre);
         NeoForge.EVENT_BUS.addListener(SableFluidTransport::onServerTickPre);
         NeoForge.EVENT_BUS.addListener(SableFluidTransport::onServerTick);
         MSpellCompatDebug.logEarly("startup", "constructed", "mod=MSpellCompat");
@@ -46,6 +54,8 @@ public final class MSpellCompat {
                     + ",lsoCanteen=" + MSpellCompatConfig.LSO_CANTEEN_CONSUME_FINITE_WATER.get()
                     + ",burntWater=" + MSpellCompatConfig.BURNT_COUNT_FLOWING_FLUIDS_WATER.get()
                     + ",burntLocalRain=" + MSpellCompatConfig.BURNT_REQUIRE_LOCAL_SIMPLE_CLOUDS_RAIN.get());
+        } else if (event.getConfig().getSpec() == SableFluidPhysicsConfig.SPEC) {
+            logSableImpactConfig();
         } else if (event.getConfig().getSpec() == SableFluidRuntimeConfig.SPEC) {
             MSpellCompatDebug.log("config", "sable_snapshot", "enabled=" + SableFluidRuntimeConfig.ENABLED.get()
                     + ",scanInterval=" + SableFluidRuntimeConfig.SCAN_INTERVAL_TICKS.get()
@@ -68,6 +78,8 @@ public final class MSpellCompat {
                     + ",lsoCanteen=" + MSpellCompatConfig.LSO_CANTEEN_CONSUME_FINITE_WATER.get()
                     + ",burntWater=" + MSpellCompatConfig.BURNT_COUNT_FLOWING_FLUIDS_WATER.get()
                     + ",burntLocalRain=" + MSpellCompatConfig.BURNT_REQUIRE_LOCAL_SIMPLE_CLOUDS_RAIN.get());
+        } else if (event.getConfig().getSpec() == SableFluidPhysicsConfig.SPEC) {
+            logSableImpactConfig();
         } else if (event.getConfig().getSpec() == SableFluidRuntimeConfig.SPEC) {
             MSpellCompatDebug.log("config", "sable_snapshot", "enabled=" + SableFluidRuntimeConfig.ENABLED.get()
                     + ",scanInterval=" + SableFluidRuntimeConfig.SCAN_INTERVAL_TICKS.get()
@@ -77,5 +89,21 @@ public final class MSpellCompat {
                     + ",unitsPerTransfer=" + SableFluidRuntimeConfig.UNITS_PER_TRANSFER.get());
         }
         MSpellCompatDebug.log("config", "reloaded", "file=" + event.getConfig().getFileName());
+    }
+
+    private static void logSableImpactConfig() {
+        MSpellCompatDebug.log("config", "sable_impact_snapshot", "enabled="
+                + SableFluidPhysicsConfig.IMPACT_DISPLACEMENT_ENABLED.get()
+                + ",minimumMass=" + SableFluidPhysicsConfig.IMPACT_MINIMUM_MASS.get()
+                + ",minimumSpeed=" + SableFluidPhysicsConfig.IMPACT_MINIMUM_SPEED.get()
+                + ",splashRadius=" + SableFluidPhysicsConfig.IMPACT_SPLASH_RADIUS.get()
+                + ",maxSourceBlocks=" + SableFluidPhysicsConfig.IMPACT_MAX_SOURCE_BLOCKS_PER_EVENT.get()
+                + ",splashUnitsPerBlock=" + SableFluidPhysicsConfig.IMPACT_SPLASH_UNITS_PER_BLOCK.get()
+                + ",maxSplashUnitsPerTick=" + SableFluidPhysicsConfig.IMPACT_MAX_SPLASH_UNITS_PER_TICK.get()
+                + ",cooldownTicks=" + SableFluidPhysicsConfig.IMPACT_COOLDOWN_TICKS.get()
+                + ",maxEventsPerTick=" + SableFluidPhysicsConfig.IMPACT_MAX_EVENTS_PER_TICK.get()
+                + ",waterLossPercent=" + SableFluidPhysicsConfig.IMPACT_WATER_LOSS_PERCENT.get()
+                + ",displaceSourceWater=" + SableFluidPhysicsConfig.IMPACT_DISPLACE_SOURCE_WATER.get()
+                + ",useSableBeyondMass=" + SableFluidPhysicsConfig.IMPACT_USE_SABLE_BEYOND_MASS.get());
     }
 }

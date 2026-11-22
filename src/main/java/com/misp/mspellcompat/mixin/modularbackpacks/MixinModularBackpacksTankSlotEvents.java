@@ -91,7 +91,6 @@ public abstract class MixinModularBackpacksTankSlotEvents {
                 ItemStack afterInput = ModularBackpacksFractionalTankTransfer
                         .snapshotTankInput(player, tankStack);
 
-
                 if (ItemStack.matches(beforeInput, afterInput)) {
                     continue;
                 }

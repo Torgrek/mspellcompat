@@ -6,6 +6,7 @@ license="${mod_license}"
 modId="${mod_id}"
 version="${mod_version}"
 displayName="${mod_name}"
+logoFile="icon.png"
 authors="MSpell"
 description='''
 Compatibility integrations for Flowing Fluids, Simple Clouds, Legendary Survival Overhaul, Burnt Basic and Sable.

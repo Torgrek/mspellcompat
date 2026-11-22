@@ -33,7 +33,6 @@ import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-
 @SuppressWarnings("resource")
 public final class SableFluidTransport {
 
@@ -53,7 +52,6 @@ public final class SableFluidTransport {
             new DirectionOffset(0, 0, 1), new DirectionOffset(0, 0, -1)
     };
 
-
     private static final DirectionOffset LOCAL_UP = new DirectionOffset(0, 1, 0);
     private static final DirectionOffset[] HORIZONTAL_DIRECTIONS = {
             new DirectionOffset(1, 0, 0), new DirectionOffset(-1, 0, 0),
@@ -64,7 +62,6 @@ public final class SableFluidTransport {
     private static final int INLET_MAX_CONTAINMENT_DISTANCE = 16;
     private static final int INLET_MAX_FILL_HEIGHT = 32;
     private static final int INLET_AMBIENT_BODY_DEPTH = 3;
-
 
     private static final Map<ServerLevel, List<StorageBounds>> ACTIVE_PLOT_BOUNDS = new WeakHashMap<>();
     private static final int MAX_KNOWN_STORAGE_BOUNDS_PER_LEVEL = 512;
@@ -240,7 +237,6 @@ public final class SableFluidTransport {
         if (!suppressed && !nearPlot) markWorldTracePosition(level, pos);
     }
 
-
     public static void onServerTickPre(ServerTickEvent.Pre event) {
         MinecraftServer server = event.getServer();
         if (!SableFluidRuntimeConfig.ENABLED.get()
@@ -267,7 +263,6 @@ public final class SableFluidTransport {
         runLocalBoundaryInputPass(server, api);
     }
 
-
     public static void onServerTick(ServerTickEvent.Post event) {
         MinecraftServer server = event.getServer();
         if (!SableFluidRuntimeConfig.ENABLED.get()
@@ -288,14 +283,12 @@ public final class SableFluidTransport {
             return;
         }
 
-
         if (!intervalElapsed(server, SableFluidRuntimeConfig.SCAN_INTERVAL_TICKS.get())) {
             return;
         }
 
         runTransportPass(server, api);
     }
-
 
     public static boolean shouldSuppressManagedFluidTick(Level level, BlockPos pos, FluidState state,
                                                          String tickKind) {
@@ -377,7 +370,6 @@ public final class SableFluidTransport {
                         tasks.add(task);
                     } else {
 
-
                         StorageBounds observed = readStorageBounds(sublevel);
                         if (observed != null) {
                             nextBounds.get(level).add(observed.inflate(2));
@@ -391,13 +383,11 @@ public final class SableFluidTransport {
             MSpellCompatDebug.error("sable_transport", "pass_enumeration_failed", throwable,
                     "server=" + server + ",phase=enumerate");
 
-
             return;
         }
 
         trace("PASS_TASKS", "sublevels=" + tasks.size());
         if (tasks.isEmpty()) {
-
 
             mergeKnownStorageBounds(nextBounds);
             trace("PASS_END", "result=no-ready-sublevels");
@@ -409,9 +399,7 @@ public final class SableFluidTransport {
         int usedCells = 0;
         int start = Math.floorMod(roundRobinStart, tasks.size());
 
-
         for (SublevelTask task : tasks) {
-
 
             nextBounds.computeIfAbsent(task.world(), ignored -> new ArrayList<>())
                     .add(task.storageBounds().inflate(2));
@@ -425,7 +413,6 @@ public final class SableFluidTransport {
                         + ",sublevelCap=" + perSublevelCap);
                 continue;
             }
-
 
             usedCells += task.volume();
             try {
@@ -443,7 +430,6 @@ public final class SableFluidTransport {
         mergeKnownStorageBounds(nextBounds);
         trace("PASS_END", "processedSublevels=" + tasks.size() + ",cellsScannedBudget=" + usedCells);
     }
-
 
     private static StorageBounds readStorageBounds(Object sublevel) {
         try {
@@ -463,7 +449,6 @@ public final class SableFluidTransport {
             return null;
         }
     }
-
 
     private static void mergeKnownStorageBounds(Map<ServerLevel, List<StorageBounds>> observedByLevel) {
         synchronized (ACTIVE_PLOT_BOUNDS) {
@@ -564,7 +549,6 @@ public final class SableFluidTransport {
                 + ",storageBounds=" + task.storageBounds() + ",gravityDown=" + task.gravityDown()
                 + "," + summarizeFluids(cells) + "," + summarizeFluidContacts(cells));
 
-
         LocalGridCache grid = buildLocalGridCache(task, cells);
         CACHED_LOCAL_GRIDS.put(surfaceCacheKey(task), grid);
 
@@ -585,12 +569,10 @@ public final class SableFluidTransport {
         int maxTransfers = Math.max(SableFluidRuntimeConfig.MAX_TRANSFERS_PER_SUBLEVEL.get(), 16);
         int maxUnits = Math.max(SableFluidRuntimeConfig.UNITS_PER_TRANSFER.get(), 2);
 
-
         fluidCells.clear();
         for (Map.Entry<CellPos, CellData> entry : cells.entrySet()) {
             CellData data = entry.getValue();
             if (data.liquid() && data.amount() > 0) {
-
 
                 fluidCells.add(entry.getKey());
             }
@@ -612,7 +594,6 @@ public final class SableFluidTransport {
                         + task.gravityDown().z * direction.dz();
                 if (slope < -0.05 || (Math.abs(slope) <= 0.05 && source.amount() < 2)) continue;
 
-
                 boolean localTarget = task.localBounds().contains(targetPos);
                 int targetAmount = 0;
                 BlockPos worldTarget = null;
@@ -621,7 +602,6 @@ public final class SableFluidTransport {
                     if (!canReceiveInPlot(target, source.fluidType()) || (target.liquid() && target.amount() >= 8)) continue;
                     targetAmount = target.liquid() ? target.amount() : 0;
                 } else {
-
 
                     for (WorldCellCandidate candidate : worldCellsForLocalTransition(task, sourcePos, targetPos)) {
                         CellData external = readCell(task.world(), candidate.worldPos(), api);
@@ -638,7 +618,6 @@ public final class SableFluidTransport {
                 candidates.add(new GridNeighborCandidate(targetPos, slope, priority, worldTarget, targetAmount));
             }
 
-
             candidates.sort(Comparator
                     .comparing((GridNeighborCandidate candidate) -> candidate.worldTarget() != null)
                     .thenComparing(Comparator.comparingInt(GridNeighborCandidate::priority).reversed()));
@@ -653,7 +632,6 @@ public final class SableFluidTransport {
                 }
                 int moved;
                 if (candidate.worldTarget() != null) {
-
 
                     if (candidate.targetAmount() == 0
                             && candidate.slope() <= 0.05
@@ -713,7 +691,6 @@ public final class SableFluidTransport {
         return task.world().dimension().location() + "|" + task.id();
     }
 
-
     private static void runLocalBoundaryInputPass(MinecraftServer server, ApiAccess api) {
         Set<String> activeKeys = new HashSet<>();
         Map<ServerLevel, List<StorageBounds>> observedBounds = new WeakHashMap<>();
@@ -742,7 +719,6 @@ public final class SableFluidTransport {
                     SublevelTask task;
                     if (grid == null) {
 
-
                         task = createTask(level, sublevel);
                         if (task == null) continue;
                         Map<CellPos, CellData> snapshot = readLocalCells(task, api);
@@ -767,7 +743,6 @@ public final class SableFluidTransport {
             MSpellCompatDebug.error("sable_transport", "boundary_input_scan_failed", failure,
                     "server=" + server);
         }
-
 
         mergeKnownStorageBounds(observedBounds);
         CACHED_LOCAL_GRIDS.keySet().removeIf(key -> !activeKeys.contains(key));
@@ -796,7 +771,6 @@ public final class SableFluidTransport {
         return new LocalGridCache(List.copyOf(inletCatchPoints), task.accessor(), task.center(),
                 task.storageBounds(), task.localBounds(), task.volume());
     }
-
 
     private static List<InletCatchPoint> findInletCatchPoints(
             SublevelTask task, Map<CellPos, CellData> cells) {
@@ -856,12 +830,10 @@ public final class SableFluidTransport {
         return true;
     }
 
-
     private static void processInletCatchPointIntake(
             SublevelTask task, LocalGridCache grid, ApiAccess api,
             Set<Long> claimedExternal, int maxTransfers) {
         if (maxTransfers <= 0 || grid.inletCatchPoints().isEmpty()) return;
-
 
         List<InletCatchPoint> ordered = new ArrayList<>(grid.inletCatchPoints());
         ordered.sort(Comparator
@@ -879,7 +851,6 @@ public final class SableFluidTransport {
             CellPos firstFillCell = catchPoint.localDeck().offset(LOCAL_UP);
             if (!task.localBounds().contains(firstFillCell)) continue;
 
-
             CellPos fillTarget = findInletFillTarget(task, api, catchPoint.localDeck(),
                     cavityCatchPoint);
             if (fillTarget == null || lockedTargets.contains(fillTarget)
@@ -892,7 +863,6 @@ public final class SableFluidTransport {
             if (!task.world().isLoaded(sourcePos) || claimedExternal.contains(sourcePos.asLong())
                     || isRecentlyDetachedEcho(task, sourcePos)) continue;
 
-
             CellData external = readCell(task.world(), sourcePos, api);
             if (!external.liquid() || external.amount() <= 0
                     || !isSupportedFluid(external.fluidType(), api)
@@ -903,7 +873,6 @@ public final class SableFluidTransport {
                 if (!aboveSource.isEmpty()) continue;
                 if (isPartOfDeepFluidBody(task.world(), api, sourcePos, external.fluidType())) continue;
             }
-
 
             CellData currentExternal = readCell(task.world(), sourcePos, api);
             if (!currentExternal.liquid() || currentExternal.amount() <= 0
@@ -987,7 +956,6 @@ public final class SableFluidTransport {
                 return current.blockState().isAir() ? cursor : null;
             }
 
-
             if (!current.liquid() || current.fluidType() == null
                     || !api.isManagedFluid(current.fluidType())) return null;
             if (current.amount() < 8) return cursor;
@@ -1019,7 +987,6 @@ public final class SableFluidTransport {
         return new BlockPos(pos.x(), pos.y(), pos.z());
     }
 
-
     private static List<WorldCellCandidate> worldCellsForLocalTransition(SublevelTask task,
                                                                            CellPos fromLocal,
                                                                            CellPos toLocal) {
@@ -1029,7 +996,6 @@ public final class SableFluidTransport {
 
         BlockPos fromBlock = BlockPos.containing(fromCenter.x, fromCenter.y, fromCenter.z);
         BlockPos toBlock = BlockPos.containing(toCenter.x, toCenter.y, toCenter.z);
-
 
         if (task.world().hasChunk(toBlock.getX() >> 4, toBlock.getZ() >> 4)
                 && (fromLocal.equals(toLocal) || !toBlock.equals(fromBlock))) {
@@ -1044,7 +1010,6 @@ public final class SableFluidTransport {
                         dx * dx + dy * dy + dz * dz));
             }
         }
-
 
         Set<Long> seen = new HashSet<>();
         LinkedHashSet<BlockPos> probes = new LinkedHashSet<>();
@@ -1062,7 +1027,6 @@ public final class SableFluidTransport {
 
             boolean targetSide;
             if (fromLocal.equals(toLocal)) {
-
 
                 targetSide = projectedCell.equals(toLocal);
             } else {
@@ -1101,7 +1065,6 @@ public final class SableFluidTransport {
                 + (localPosition.z - midpointZ) * dz;
         if (side < -1.0e-7) return false;
 
-
         double targetDx = localPosition.x - toX;
         double targetDy = localPosition.y - toY;
         double targetDz = localPosition.z - toZ;
@@ -1125,7 +1088,6 @@ public final class SableFluidTransport {
                 .computeIfAbsent(key, ignored -> new ConcurrentHashMap<>())
                 .put(worldDestination.asLong(), new DetachedSurfaceMark(worldDestination.immutable(), task.world().getGameTime()));
     }
-
 
     private static boolean isRecentlyDetachedEcho(SublevelTask task, BlockPos externalSource) {
         String key = surfaceCacheKey(task);
@@ -1159,7 +1121,6 @@ public final class SableFluidTransport {
         boolean foundSolid = false;
         for (Map.Entry<CellPos, CellData> entry : cells.entrySet()) {
 
-
             if (isPassable(entry.getValue())) continue;
             CellPos pos = entry.getKey();
             foundSolid = true;
@@ -1168,7 +1129,6 @@ public final class SableFluidTransport {
         }
         return foundSolid ? new LocalBounds(minX, minY, minZ, maxX, maxY, maxZ) : null;
     }
-
 
     private static boolean isPassable(CellData cell) {
         return cell != null && (cell.air() || cell.liquid());
@@ -1322,7 +1282,6 @@ public final class SableFluidTransport {
         if (!targetIsPlot && targetLevel instanceof Level targetWorld) {
             markWorldTracePosition(targetWorld, targetPos);
         }
-
 
         if (!sourceIsPlot) {
             FluidState afterSource = sourceLevel.getFluidState(sourcePos);
@@ -1562,7 +1521,6 @@ public final class SableFluidTransport {
                 && sameFluidFamily(sourceFluid, target.fluidType());
     }
 
-
     private static List<BlockPos> centerAndNeighbors(BlockPos center) {
         List<BlockPos> result = new ArrayList<>(27);
         for (int dx = -1; dx <= 1; dx++) {
@@ -1576,7 +1534,6 @@ public final class SableFluidTransport {
     }
 
     private static Vec3 transformedCellCenter(SublevelTask task, CellPos cell) {
-
 
         BlockPos center = task.center();
         return transformedPosition(task.pose(), new Vec3(
@@ -1592,7 +1549,6 @@ public final class SableFluidTransport {
     private static Vec3 inverseTransformedPosition(Object pose, Vec3 world) {
         return invokePoseVector(pose, world, "transformPositionInverse", POSE_INVERSE_TRANSFORM_METHODS);
     }
-
 
     private static Vec3 inverseTransformedLocalPosition(SublevelTask task, Vec3 world) {
         Vec3 plotPosition = inverseTransformedPosition(task.pose(), world);
@@ -1781,7 +1737,6 @@ public final class SableFluidTransport {
             this.getBlockForFluidByAmount = getBlockForFluidByAmount;
         }
 
-
         private boolean isEnabled() {
             try {
                 return Boolean.TRUE.equals(isModEnabled.invoke(api));
@@ -1807,7 +1762,6 @@ public final class SableFluidTransport {
             managedFluidCache.put(fluid, managed);
             return managed;
         }
-
 
         private boolean setAmountQuiet(LevelAccessor level, BlockPos pos, Fluid fluid, int amount) {
             try {

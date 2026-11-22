@@ -11,6 +11,8 @@
     "lso.MixinLsoFiniteWaterBlockDrinking",
     "lso.MixinLsoCanteenFiniteWater",
     "burnt.MixinBurntAdjacentFluidWater",
+    "burnt.MixinBurntLiquidBlockPlacement",
+    "burnt.MixinBurntFlowingFluidTick",
     "burnt.MixinBurntSimpleCloudsRain",
     "sable.MixinSablePlotFluidTick",
     "modularbackpacks.MixinModularBackpacksTankSlotEvents",

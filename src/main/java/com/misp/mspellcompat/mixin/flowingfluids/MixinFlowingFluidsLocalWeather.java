@@ -15,7 +15,6 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.Dynamic;
 import traben.flowing_fluids.mixin.mixins.MixinWaterFluid;
 
-
 @Mixin(value = WaterFluid.class, priority = 1100, remap = false)
 public abstract class MixinFlowingFluidsLocalWeather {
     @Dynamic(mixin = MixinWaterFluid.class)

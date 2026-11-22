@@ -21,6 +21,10 @@ public final class CompatMixinPlugin implements IMixinConfigPlugin {
             "com.misp.mspellcompat.mixin.lso.MixinLsoCanteenFiniteWater";
     private static final String BURNT_FLUID_STATE_MIXIN =
             "com.misp.mspellcompat.mixin.burnt.MixinBurntAdjacentFluidWater";
+    private static final String BURNT_FLOWING_FLUID_TICK_MIXIN =
+            "com.misp.mspellcompat.mixin.burnt.MixinBurntFlowingFluidTick";
+    private static final String BURNT_LIQUID_BLOCK_PLACEMENT_MIXIN =
+            "com.misp.mspellcompat.mixin.burnt.MixinBurntLiquidBlockPlacement";
     private static final String BURNT_SIMPLE_CLOUDS_RAIN_MIXIN =
             "com.misp.mspellcompat.mixin.burnt.MixinBurntSimpleCloudsRain";
     private static final String SABLE_FLUID_TICK_MIXIN =
@@ -55,7 +59,9 @@ public final class CompatMixinPlugin implements IMixinConfigPlugin {
             return isModLoaded("legendarysurvivaloverhaul")
                     && isModLoaded("flowing_fluids");
         }
-        if (BURNT_FLUID_STATE_MIXIN.equals(mixinClassName)) {
+        if (BURNT_FLUID_STATE_MIXIN.equals(mixinClassName)
+                || BURNT_FLOWING_FLUID_TICK_MIXIN.equals(mixinClassName)
+                || BURNT_LIQUID_BLOCK_PLACEMENT_MIXIN.equals(mixinClassName)) {
             return isModLoaded("burnt") && isModLoaded("flowing_fluids");
         }
         if (BURNT_SIMPLE_CLOUDS_RAIN_MIXIN.equals(mixinClassName)) {

@@ -19,7 +19,6 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import traben.flowing_fluids.FFFluidUtils;
 
-
 @Mixin(targets = "sfiomn.legendarysurvivaloverhaul.common.events.CommonNeoForgeEvents", remap = false)
 public abstract class MixinLsoFiniteWaterBlockDrinking {
 
@@ -76,14 +75,12 @@ public abstract class MixinLsoFiniteWaterBlockDrinking {
             return;
         }
 
-
         boolean drinkingRain = player.getViewXRot(1.0F) < -60.0F
                 && level.isRainingAt(player.blockPosition().above());
         if (drinkingRain) {
             MSpellCompatDebug.log("lso_block_drink", "skip", "reason=rain_drinking");
             return;
         }
-
 
         double reach = (float) (player.getAttributeValue(Attributes.BLOCK_INTERACTION_RANGE) / 2.0D);
         HitResult hit = player.pick(reach, 0.0F, true);
