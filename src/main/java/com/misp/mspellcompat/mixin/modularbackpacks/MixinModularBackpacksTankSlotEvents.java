@@ -135,9 +135,11 @@ public abstract class MixinModularBackpacksTankSlotEvents {
             backpackItem.getMethod("saveBackpackHandlerAndSync", Player.class, ItemStack.class, Object.class)
                     .invoke(null, player, backpackStack, handler);
         } catch (ReflectiveOperationException | SecurityException exception) {
-            MSpellCompatDebug.debugException(
-                    "[MSpellCompat/MB-FF] Failed to save/sync Modular Backpacks after tank-slot transfer",
-                    exception);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.debugException(
+                        "[MSpellCompat/MB-FF] Failed to save/sync Modular Backpacks after tank-slot transfer",
+                        exception);
+            }
         }
     }
 }

@@ -32,6 +32,10 @@ public final class MSpellCompatConfig {
     public static final ModConfigSpec.IntValue BURNT_MIN_WATER_AMOUNT;
     public static final ModConfigSpec.IntValue BURNT_WATER_LAYERS_CONSUMED_PER_EXTINGUISH;
     public static final ModConfigSpec.BooleanValue BURNT_REQUIRE_LOCAL_SIMPLE_CLOUDS_RAIN;
+    public static final ModConfigSpec.BooleanValue TREE_PHYSICS_DAMAGE_ENABLED;
+    public static final ModConfigSpec.BooleanValue TREE_PHYSICS_EXPLOSION_FELLING_ENABLED;
+    public static final ModConfigSpec.BooleanValue TREE_PHYSICS_BLOCK_DAMAGE_FELLING_ENABLED;
+    public static final ModConfigSpec.IntValue TREE_PHYSICS_SUPPRESSION_CLEANUP_INTERVAL_TICKS;
     public static final ModConfigSpec SPEC;
 
     static {
@@ -42,11 +46,11 @@ public final class MSpellCompatConfig {
         BUILDER.push("flowing_fluids_simple_clouds");
         FLOWING_FLUIDS_USE_LOCAL_WEATHER = BUILDER.comment("Use local precipitation for fluid refill.")
                 .define("use_local_precipitation_for_refill", true);
-        FLOWING_FLUIDS_CREATE_SURFACE_WATER = BUILDER.comment("Create water layers during local rain.")
+        FLOWING_FLUIDS_CREATE_SURFACE_WATER = BUILDER.comment("Enable surface precipitation accumulation: Flowing Fluids water during rain and snow layers during snowfall.")
                 .define("create_surface_water_from_local_rain", true);
-        FLOWING_FLUIDS_SURFACE_WATER_CHANCE_DENOMINATOR = BUILDER.comment("Rain layer chance denominator.")
+        FLOWING_FLUIDS_SURFACE_WATER_CHANCE_DENOMINATOR = BUILDER.comment("Shared precipitation-layer chance denominator for ordinary terrain and Sable sublevels; used for rainwater and snow layers.")
                 .defineInRange("surface_water_chance_denominator", 1200, 1, 20000);
-        FLOWING_FLUIDS_SURFACE_WATER_UNITS = BUILDER.comment("Water units created per rain event.")
+        FLOWING_FLUIDS_SURFACE_WATER_UNITS = BUILDER.comment("Flowing Fluids water units created per rain event; snowfall creates one snow layer per successful attempt.")
                 .defineInRange("surface_water_units", 1, 1, 8);
         BUILDER.pop();
 
@@ -109,6 +113,17 @@ public final class MSpellCompatConfig {
         BURNT_REQUIRE_LOCAL_SIMPLE_CLOUDS_RAIN = BUILDER
                 .comment("Use local Simple Clouds rain for Burnt rain checks.")
                 .define("require_local_simple_clouds_rain_for_extinguishing", true);
+        BUILDER.pop();
+
+        BUILDER.push("tree_physics_damage");
+        TREE_PHYSICS_DAMAGE_ENABLED = BUILDER.comment("Enable MSpellCompat integration with Tree Physics.")
+                .define("enabled", true);
+        TREE_PHYSICS_EXPLOSION_FELLING_ENABLED = BUILDER.comment("Allow explosions to trigger Tree Physics tree falling.")
+                .define("explosions_trigger_felling", true);
+        TREE_PHYSICS_BLOCK_DAMAGE_FELLING_ENABLED = BUILDER.comment("Allow non-player block destruction to trigger Tree Physics tree falling.")
+                .define("block_damage_triggers_felling", true);
+        TREE_PHYSICS_SUPPRESSION_CLEANUP_INTERVAL_TICKS = BUILDER.comment("Ticks between cleanup passes for temporary Tree Physics block-replacement guards.")
+                .defineInRange("suppression_cleanup_interval_ticks", 20, 1, 1200);
         BUILDER.pop();
 
         SPEC = BUILDER.build();

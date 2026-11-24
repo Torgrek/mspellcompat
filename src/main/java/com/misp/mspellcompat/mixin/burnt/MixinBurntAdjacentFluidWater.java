@@ -82,16 +82,20 @@ public abstract class MixinBurntAdjacentFluidWater {
             );
             if (nestedWaterPos != null) {
                 cir.setReturnValue(true);
-                MSpellCompatDebug.log("burnt_water", "nested_water_match",
-                        "center=" + center + ",waterPos=" + nestedWaterPos
-                                + ",requiredAmount=" + nestedRequiredAmount);
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.log("burnt_water", "nested_water_match",
+                            "center=" + center + ",waterPos=" + nestedWaterPos
+                                    + ",requiredAmount=" + nestedRequiredAmount);
+                }
             }
             return;
         }
 
         if (!originalResult && !partialWaterEnabled) {
-            MSpellCompatDebug.log("burnt_water", "adjacent_water_result",
-                    "center=" + center + ",original=false,partialWaterEnabled=false,final=false");
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("burnt_water", "adjacent_water_result",
+                        "center=" + center + ",original=false,partialWaterEnabled=false,final=false");
+            }
             return;
         }
 
@@ -117,25 +121,31 @@ public abstract class MixinBurntAdjacentFluidWater {
                 BlockPos insufficientWaterPos = mspell$findAdjacentWaterLayer(level, center, 1, true);
                 if (insufficientWaterPos != null) {
                     cir.setReturnValue(false);
-                    MSpellCompatDebug.log("burnt_water", "extinguish_denied",
-                            "center=" + center + ",waterPos=" + insufficientWaterPos
-                                    + ",reason=insufficient_water_layers,cost=" + layersToConsume);
+                    if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                        MSpellCompatDebug.log("burnt_water", "extinguish_denied",
+                                "center=" + center + ",waterPos=" + insufficientWaterPos
+                                        + ",reason=insufficient_water_layers,cost=" + layersToConsume);
+                    }
                     return;
                 }
             }
-            MSpellCompatDebug.log("burnt_water", "adjacent_water_scan",
-                    "center=" + center + ",original=" + originalResult
-                            + ",minimumAmount=" + minimumAmount + ",layersToConsume=" + layersToConsume
-                            + ",foundWater=false,neighbors=" + mspell$describeNeighbors(level, center));
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("burnt_water", "adjacent_water_scan",
+                        "center=" + center + ",original=" + originalResult
+                                + ",minimumAmount=" + minimumAmount + ",layersToConsume=" + layersToConsume
+                                + ",foundWater=false,neighbors=" + mspell$describeNeighbors(level, center));
+            }
             return;
         }
 
         if (mspell$isBurntFireState(level.getBlockState(center))) {
             boolean extinguished = mspell$extinguishBurntBlock(level, center);
             if (!extinguished) {
-                MSpellCompatDebug.log("burnt_water", "extinguish_failed",
-                        "center=" + center + ",waterPos=" + waterPos
-                                + ",reason=burnt_procedure_did_not_change_fire_state");
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.log("burnt_water", "extinguish_failed",
+                            "center=" + center + ",waterPos=" + waterPos
+                                    + ",reason=burnt_procedure_did_not_change_fire_state");
+                }
                 if (!originalResult) cir.setReturnValue(false);
                 return;
             }
@@ -143,19 +153,23 @@ public abstract class MixinBurntAdjacentFluidWater {
             boolean consumed = layersToConsume <= 0
                     || mspell$consumeWaterLayers(level, waterPos, layersToConsume);
             cir.setReturnValue(true);
-            MSpellCompatDebug.log("burnt_water", "burnt_block_extinguished",
-                    "center=" + center + ",waterPos=" + waterPos + ",layersConsumed="
-                            + (consumed ? layersToConsume : 0) + ",consumptionSucceeded=" + consumed);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("burnt_water", "burnt_block_extinguished",
+                        "center=" + center + ",waterPos=" + waterPos + ",layersConsumed="
+                                + (consumed ? layersToConsume : 0) + ",consumptionSucceeded=" + consumed);
+            }
             return;
         }
 
         if (!originalResult) {
             cir.setReturnValue(true);
         }
-        MSpellCompatDebug.log("burnt_water", "adjacent_water_scan",
-                "center=" + center + ",original=" + originalResult + ",minimumAmount=" + minimumAmount
-                        + ",layersToConsume=" + layersToConsume + ",foundWater=true,waterPos=" + waterPos
-                        + ",burntFireTarget=false,final=" + cir.getReturnValueZ());
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.log("burnt_water", "adjacent_water_scan",
+                    "center=" + center + ",original=" + originalResult + ",minimumAmount=" + minimumAmount
+                            + ",layersToConsume=" + layersToConsume + ",foundWater=true,waterPos=" + waterPos
+                            + ",burntFireTarget=false,final=" + cir.getReturnValueZ());
+        }
     }
 
     @Unique
@@ -229,11 +243,13 @@ public abstract class MixinBurntAdjacentFluidWater {
                         && after.getAmount() == expectedAmount
                         && after.getType().isSame(fluid);
 
-        MSpellCompatDebug.log("burnt_water", "layer_consumption_result",
-                "waterPos=" + waterPos + ",fluid=" + fluid + ",requested=" + layersToConsume
-                        + ",beforeAmount=" + before.getAmount() + ",expectedAmount=" + expectedAmount
-                        + ",remainder=" + remainder + ",after=" + MSpellCompatDebug.describeFluid(level, waterPos)
-                        + ",success=" + (remainder == 0 && amountMatches));
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.log("burnt_water", "layer_consumption_result",
+                    "waterPos=" + waterPos + ",fluid=" + fluid + ",requested=" + layersToConsume
+                            + ",beforeAmount=" + before.getAmount() + ",expectedAmount=" + expectedAmount
+                            + ",remainder=" + remainder + ",after=" + MSpellCompatDebug.describeFluid(level, waterPos)
+                            + ",success=" + (remainder == 0 && amountMatches));
+        }
         return remainder == 0 && amountMatches;
     }
 
@@ -253,10 +269,12 @@ public abstract class MixinBurntAdjacentFluidWater {
         try {
             procedure.invoke(null, level, (double) pos.getX(), (double) pos.getY(), (double) pos.getZ());
         } catch (Throwable failure) {
-            MSpellCompatDebug.debugException(
-                    "[MSpellCompatDebug][burnt_water] Burnt single-block extinguish procedure failed at " + pos,
-                    failure
-            );
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.debugException(
+                        "[MSpellCompatDebug][burnt_water] Burnt single-block extinguish procedure failed at " + pos,
+                        failure
+                );
+            }
             return false;
         } finally {
             mspell$INSIDE_EXTINGUISH.set(false);
@@ -284,10 +302,12 @@ public abstract class MixinBurntAdjacentFluidWater {
                     mspell$extinguishProcedure = method;
                 }
             } catch (Throwable failure) {
-                MSpellCompatDebug.debugException(
-                        "[MSpellCompatDebug][burnt_water] Could not resolve Burnt single-block extinguish procedure",
-                        failure
-                );
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.debugException(
+                            "[MSpellCompatDebug][burnt_water] Could not resolve Burnt single-block extinguish procedure",
+                            failure
+                    );
+                }
             }
             mspell$extinguishProcedureResolved = true;
             return mspell$extinguishProcedure;

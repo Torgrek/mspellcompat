@@ -150,6 +150,7 @@ def modrinthArtifacts = [
     createAeronautics: registerModrinthCdnArtifact('Createaeronautics', 'oWaK0Q19', '44pLdPGg', 'create-aeronautics-bundled-1.21.1-1.3.2.jar', 'a3f330d4757640f8715d991a43eedb826e4d0e51558d859c843ae6693bd35f1e', null),
     sable: registerModrinthCdnArtifact('Sable', 'T9PomCSv', 'fg9dTRz9', 'sable-neoforge-1.21.1-2.0.6.jar', '9c199157843bf953a47dff625fc5bb41c01a90538d35ad18e6996bbcb8a617c2', null),
     sableBeyond: registerModrinthCdnArtifact('Sablebeyond', 'PrW3B4fH', 'BWQxgVOj', 'sablebeyond-neoforge-1.21.1-v0.5.0.jar', '756766b593adb8ef5524fb8239f6caaaaa065e74d396e9dda86401eae315d9de', null),
+    treePhysics: registerModrinthCdnArtifact('TreePhysics', 'AlVH5pr8', 'nRQrvQIW', 'treephysics-neoforge-1.21.1-2.4.jar', 'd53b43e65e4a22070ea630c313284fe4857340b14c182adda8d44bc9946807e7', null),
 ]
 
 def modrinthFileDependency = { artifact ->
@@ -180,6 +181,7 @@ dependencies {
     localRuntime modrinthFileDependency(modrinthArtifacts.createAeronautics)
     localRuntime modrinthFileDependency(modrinthArtifacts.sable)
     localRuntime modrinthFileDependency(modrinthArtifacts.sableBeyond)
+    localRuntime modrinthFileDependency(modrinthArtifacts.treePhysics)
 }
 
 def allModrinthDownloadTasks = modrinthArtifacts.values().collect { it.task }

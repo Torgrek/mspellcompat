@@ -35,6 +35,10 @@ public final class CompatMixinPlugin implements IMixinConfigPlugin {
             "com.misp.mspellcompat.mixin.modularbackpacks.MixinModularBackpacksTankSlotEvents";
     private static final String MB_FF_NATIVE_TICK_GUARD_MIXIN =
             "com.misp.mspellcompat.mixin.modularbackpacks.MixinModularBackpacksNativeTickGuard";
+    private static final String TREE_PHYSICS_DAMAGE_MIXIN =
+            "com.misp.mspellcompat.mixin.treephysics.MixinLevelTreePhysicsDamage";
+    private static final String TREE_PHYSICS_OPERATION_GUARD_MIXIN =
+            "com.misp.mspellcompat.mixin.treephysics.MixinTreePhysicsFloodFillGuard";
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -47,6 +51,10 @@ public final class CompatMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (TREE_PHYSICS_DAMAGE_MIXIN.equals(mixinClassName)
+                || TREE_PHYSICS_OPERATION_GUARD_MIXIN.equals(mixinClassName)) {
+            return isModLoaded("treephysics");
+        }
         if (MB_FF_TANK_SLOT_EVENTS_MIXIN.equals(mixinClassName)
                 || MB_FF_NATIVE_TICK_GUARD_MIXIN.equals(mixinClassName)) {
             return isModLoaded("modular_backpacks") && isModLoaded("flowing_fluids");

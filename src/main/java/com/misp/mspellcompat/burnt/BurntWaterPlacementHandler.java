@@ -73,9 +73,11 @@ public final class BurntWaterPlacementHandler {
                 predicate.invoke(null, (LevelAccessor) level,
                         (double) targetPos.getX(), (double) targetPos.getY(), (double) targetPos.getZ());
             } catch (Throwable failure) {
-                MSpellCompatDebug.debugException(
-                        "[MSpellCompatDebug][burnt_water] Immediate placement extinguish check failed at " + targetPos,
-                        failure);
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.debugException(
+                            "[MSpellCompatDebug][burnt_water] Immediate placement extinguish check failed at " + targetPos,
+                            failure);
+                }
                 continue;
             }
 
@@ -87,11 +89,13 @@ public final class BurntWaterPlacementHandler {
             boolean costPaid = layersToConsume <= 0 || consumed >= layersToConsume;
 
             if (extinguished && costPaid) {
-                MSpellCompatDebug.log("burnt_water", "water_placement_extinguished",
-                        "waterPos=" + waterPos + ",target=" + targetPos + ",beforeTarget="
-                                + beforeTarget.getBlock() + ",afterTarget=" + afterTarget.getBlock()
-                                + ",beforeAmount=" + beforeAmount + ",afterAmount=" + afterAmount
-                                + ",consumed=" + consumed + ",configuredCost=" + layersToConsume);
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.log("burnt_water", "water_placement_extinguished",
+                            "waterPos=" + waterPos + ",target=" + targetPos + ",beforeTarget="
+                                    + beforeTarget.getBlock() + ",afterTarget=" + afterTarget.getBlock()
+                                    + ",beforeAmount=" + beforeAmount + ",afterAmount=" + afterAmount
+                                    + ",consumed=" + consumed + ",configuredCost=" + layersToConsume);
+                }
                 if (afterAmount > 0) {
                     Fluid remainingFluid = afterWater.getType();
                     level.scheduleTick(waterPos, remainingFluid, remainingFluid.getTickDelay(level));
@@ -99,18 +103,22 @@ public final class BurntWaterPlacementHandler {
                 return;
             }
 
-            MSpellCompatDebug.log("burnt_water", "water_placement_attempt_incomplete",
-                    "waterPos=" + waterPos + ",target=" + targetPos + ",extinguished=" + extinguished
-                            + ",beforeAmount=" + beforeAmount + ",afterAmount=" + afterAmount
-                            + ",consumed=" + consumed + ",configuredCost=" + layersToConsume);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("burnt_water", "water_placement_attempt_incomplete",
+                        "waterPos=" + waterPos + ",target=" + targetPos + ",extinguished=" + extinguished
+                                + ",beforeAmount=" + beforeAmount + ",afterAmount=" + afterAmount
+                                + ",consumed=" + consumed + ",configuredCost=" + layersToConsume);
+            }
 
             if (afterAmount < requiredAmount) return;
         }
         if (sawBurntNamespaceNeighbor) {
-            MSpellCompatDebug.log("burnt_water",
-                    sawBurningTarget ? "water_placement_scan_finished" : "water_placement_no_burning_tag_match",
-                    "waterPos=" + waterPos + ",amount=" + initialWater.getAmount()
-                            + ",neighbors=" + burntNeighbors);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("burnt_water",
+                        sawBurningTarget ? "water_placement_scan_finished" : "water_placement_no_burning_tag_match",
+                        "waterPos=" + waterPos + ",amount=" + initialWater.getAmount()
+                                + ",neighbors=" + burntNeighbors);
+            }
         }
     }
 
@@ -139,9 +147,11 @@ public final class BurntWaterPlacementHandler {
                 method.setAccessible(true);
                 if (Modifier.isStatic(method.getModifiers())) hasAdjacentWaterMethod = method;
             } catch (Throwable failure) {
-                MSpellCompatDebug.debugException(
-                        "[MSpellCompatDebug][burnt_water] Could not resolve Burnt water predicate for placement",
-                        failure);
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.debugException(
+                            "[MSpellCompatDebug][burnt_water] Could not resolve Burnt water predicate for placement",
+                            failure);
+                }
             }
             hasAdjacentWaterResolved = true;
             return hasAdjacentWaterMethod;

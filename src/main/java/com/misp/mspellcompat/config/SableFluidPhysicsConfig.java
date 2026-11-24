@@ -6,6 +6,10 @@ public final class SableFluidPhysicsConfig {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
     public static final ModConfigSpec.BooleanValue IMPACT_DISPLACEMENT_ENABLED;
+    public static final ModConfigSpec.IntValue IMPACT_PROCESS_INTERVAL_TICKS;
+    public static final ModConfigSpec.IntValue IMPACT_CLEANUP_INTERVAL_TICKS;
+    public static final ModConfigSpec.IntValue IMPACT_HISTORY_RETENTION_TICKS;
+    public static final ModConfigSpec.IntValue IMPACT_MAX_WORLD_SCAN_CELLS;
     public static final ModConfigSpec.DoubleValue IMPACT_MINIMUM_MASS;
     public static final ModConfigSpec.DoubleValue IMPACT_MINIMUM_SPEED;
     public static final ModConfigSpec.IntValue IMPACT_SPLASH_RADIUS;
@@ -22,6 +26,14 @@ public final class SableFluidPhysicsConfig {
     static {
         BUILDER.push("impact_displacement");
         IMPACT_DISPLACEMENT_ENABLED = BUILDER.comment("Enable water displacement on impact.").define("enabled", true);
+        IMPACT_PROCESS_INTERVAL_TICKS = BUILDER.comment("Ticks between impact-displacement scans. 1 preserves per-tick responsiveness.")
+                .defineInRange("scan_interval_ticks", 1, 1, 40);
+        IMPACT_CLEANUP_INTERVAL_TICKS = BUILDER.comment("Ticks between cleanup passes for stored impact history.")
+                .defineInRange("cleanup_interval_ticks", 100, 1, 1200);
+        IMPACT_HISTORY_RETENTION_TICKS = BUILDER.comment("Ticks to retain the last-processed timestamp for an impact structure.")
+                .defineInRange("history_retention_ticks", 1200, 100, 72000);
+        IMPACT_MAX_WORLD_SCAN_CELLS = BUILDER.comment("Maximum world cells examined for one structure during impact displacement.")
+                .defineInRange("max_world_scan_cells", 32768, 512, 1048576);
         IMPACT_MINIMUM_MASS = BUILDER.comment("Minimum structure mass for impact effects.")
                 .defineInRange("minimum_mass", 64.0, 0.0, 1.0e9);
         IMPACT_MINIMUM_SPEED = BUILDER.comment("Minimum impact speed.")

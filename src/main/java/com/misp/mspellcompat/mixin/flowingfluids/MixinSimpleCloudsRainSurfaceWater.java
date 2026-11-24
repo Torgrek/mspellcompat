@@ -2,7 +2,6 @@ package com.misp.mspellcompat.mixin.flowingfluids;
 
 import com.misp.mspellcompat.config.MSpellCompatConfig;
 import com.misp.mspellcompat.util.MSpellCompatDebug;
-import dev.nonamecrackers2.simpleclouds.common.world.CloudManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -12,6 +11,8 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.level.material.Fluids;
+import com.misp.mspellcompat.weather.SurfacePrecipitation;
+import net.neoforged.fml.ModList;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -19,93 +20,132 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import traben.flowing_fluids.FFFluidUtils;
 
+import java.lang.reflect.Method;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.WeakHashMap;
+
 @Mixin(value = ServerLevel.class, remap = false)
 public abstract class MixinSimpleCloudsRainSurfaceWater {
+    @Unique
+    private static volatile Method mspell$getSableContainerMethod;
+    @Unique
+    private static volatile Method mspell$isSablePlotyardMethod;
+    @Unique
+    private static final Map<ServerLevel, Map<Long, Boolean>> mspell$sableStorageChunkCache = new WeakHashMap<>();
+
     @Inject(
             method = "tickChunk(Lnet/minecraft/world/level/chunk/LevelChunk;I)V",
             at = @At("TAIL"),
             require = 1,
             remap = false
     )
-    private void mspell$tryCreateRainSurfaceWater(
+    private void mspell$tryCreateSurfacePrecipitationLayer(
             LevelChunk chunk,
             int randomTickSpeed,
             CallbackInfo ci
     ) {
         ServerLevel level = (ServerLevel) (Object) this;
         if (!MSpellCompatConfig.FLOWING_FLUIDS_CREATE_SURFACE_WATER.get()) {
-            MSpellCompatDebug.log("surface_rain_water", "skip", () ->
-                    "reason=feature_disabled,chunk=" + chunk.getPos());
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("surface_precipitation_layer", "skip", () ->
+                        "reason=feature_disabled,chunk=" + chunk.getPos());
+            }
+            return;
+        }
+
+        ChunkPos chunkPos = chunk.getPos();
+        if (mspell$isSableStorageChunk(level, chunkPos)) {
             return;
         }
 
         int denominator = MSpellCompatConfig.FLOWING_FLUIDS_SURFACE_WATER_CHANCE_DENOMINATOR.get();
         int roll = level.getRandom().nextInt(denominator);
-        if (roll != 0) {
-            MSpellCompatDebug.log("surface_rain_water", "skip", () -> "reason=chance,chunk=" + chunk.getPos()
-                    + ",roll=" + roll + ",denominator=" + denominator + ",randomTickSpeed=" + randomTickSpeed);
-            return;
-        }
+        if (roll != 0) return;
 
-        ChunkPos chunkPos = chunk.getPos();
         int x = chunkPos.getMinBlockX() + level.getRandom().nextInt(16);
         int z = chunkPos.getMinBlockZ() + level.getRandom().nextInt(16);
         int surfaceY = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, x, z);
+        if (surfaceY <= level.getMinBuildHeight() || surfaceY >= level.getMaxBuildHeight()) return;
 
-        if (surfaceY <= level.getMinBuildHeight() || surfaceY >= level.getMaxBuildHeight()) {
-            MSpellCompatDebug.log("surface_rain_water", "skip", () -> "reason=height_limit,chunk=" + chunkPos
-                    + ",sample=" + x + "," + surfaceY + "," + z);
-            return;
-        }
+        BlockPos targetPos = new BlockPos(x, surfaceY, z);
+        BlockPos supportPos = targetPos.below();
+        if (!level.canSeeSky(targetPos)) return;
 
-        BlockPos waterPos = new BlockPos(x, surfaceY, z);
-        BlockPos supportPos = waterPos.below();
-        BlockState waterTargetState = chunk.getBlockState(waterPos);
-        if (!waterTargetState.isAir() || !chunk.getFluidState(waterPos).isEmpty()) {
-            MSpellCompatDebug.log("surface_rain_water", "skip", () -> "reason=target_not_empty,chunk=" + chunkPos
-                    + ",target=" + MSpellCompatDebug.describeFluid(level, waterPos));
-            return;
-        }
+        Biome.Precipitation precipitation = SurfacePrecipitation.getAt(level, targetPos);
+        if (precipitation == Biome.Precipitation.RAIN) {
+            BlockState targetState = chunk.getBlockState(targetPos);
+            if (!targetState.isAir() || !chunk.getFluidState(targetPos).isEmpty()) return;
 
-        BlockState supportState = chunk.getBlockState(supportPos);
-        if (!supportState.isFaceSturdy(level, supportPos, Direction.UP)) {
-            MSpellCompatDebug.log("surface_rain_water", "skip", () -> "reason=unsupported_surface,chunk=" + chunkPos
-                    + ",supportPos=" + supportPos + ",support=" + supportState);
-            return;
-        }
-        if (!level.canSeeSky(waterPos)) {
-            MSpellCompatDebug.log("surface_rain_water", "skip", () -> "reason=sky_blocked,pos=" + waterPos);
-            return;
-        }
-        if (!mspell$isRainingAt(level, waterPos)) {
-            MSpellCompatDebug.log("surface_rain_water", "skip", () -> "reason=no_local_rain,pos=" + waterPos);
+            BlockState supportState = chunk.getBlockState(supportPos);
+            if (!supportState.isFaceSturdy(level, supportPos, Direction.UP)) return;
+
+            int amount = MSpellCompatConfig.FLOWING_FLUIDS_SURFACE_WATER_UNITS.get();
+            FFFluidUtils.setFluidStateAtPosToNewAmount(level, targetPos, Fluids.WATER, amount);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("surface_precipitation_layer", "water_created", () ->
+                        "pos=" + targetPos + ",amount=" + amount + ",chunk=" + chunkPos);
+            }
             return;
         }
 
-        int amount = MSpellCompatConfig.FLOWING_FLUIDS_SURFACE_WATER_UNITS.get();
-        MSpellCompatDebug.log("surface_rain_water", "create_begin", () -> "pos=" + waterPos + ",amount=" + amount
-                + ",support=" + supportPos + ",supportState=" + supportState);
-        FFFluidUtils.setFluidStateAtPosToNewAmount(level, waterPos, Fluids.WATER, amount);
-        MSpellCompatDebug.log("surface_rain_water", "create_end", () ->
-                "pos=" + waterPos + ",requestedAmount=" + amount + ",after="
-                        + MSpellCompatDebug.describeFluid(level, waterPos));
+        if (precipitation == Biome.Precipitation.SNOW) {
+            if (SurfacePrecipitation.addSnowLayer(level, targetPos, supportPos)
+                    && MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("surface_precipitation_layer", "snow_layer_added", () ->
+                        "pos=" + targetPos + ",chunk=" + chunkPos);
+            }
+        }
     }
 
     @Unique
-    private static boolean mspell$isRainingAt(ServerLevel level, BlockPos pos) {
-        CloudManager<ServerLevel> clouds = CloudManager.get(level);
-        if (clouds.shouldUseVanillaWeather()) {
-            boolean result = level.isRainingAt(pos);
-            MSpellCompatDebug.log("surface_rain_water", "rain_check", () ->
-                    "mode=vanilla,pos=" + pos + ",result=" + result);
-            return result;
+    private static boolean mspell$isSableStorageChunk(ServerLevel level, ChunkPos chunkPos) {
+        long minBlockX = (long) chunkPos.x * 16L;
+        long minBlockZ = (long) chunkPos.z * 16L;
+        if (Math.abs(minBlockX) < 10_000_000L || Math.abs(minBlockZ) < 10_000_000L) {
+            return false;
+        }
+        if (!ModList.get().isLoaded("sable")) return false;
+
+        long chunkKey = ((long) chunkPos.x << 32) ^ (chunkPos.z & 0xFFFFFFFFL);
+        synchronized (mspell$sableStorageChunkCache) {
+            Map<Long, Boolean> levelCache = mspell$sableStorageChunkCache.get(level);
+            if (levelCache != null) {
+                Boolean cached = levelCache.get(chunkKey);
+                if (cached != null) return cached;
+            }
         }
 
-        var precipitation = clouds.getPrecipitationAt(pos);
-        boolean result = Boolean.TRUE.equals(precipitation.getLeft())
-                && precipitation.getRight() == Biome.Precipitation.RAIN;
-        MSpellCompatDebug.log("surface_rain_water", "rain_check", () ->
-                "mode=simpleclouds,pos=" + pos + ",precipitation=" + precipitation + ",result=" + result);
-        return result;
+        boolean inPlotyard = false;
+        try {
+            Method getContainer = mspell$getSableContainerMethod;
+            if (getContainer == null) {
+                Class<?> containerClass = Class.forName("dev.ryanhcode.sable.api.sublevel.SubLevelContainer");
+                Method discovered = containerClass.getMethod("getContainer", ServerLevel.class);
+                mspell$getSableContainerMethod = discovered;
+                getContainer = discovered;
+            }
+            Object container = getContainer.invoke(null, level);
+            if (container != null) {
+                Method inBounds = mspell$isSablePlotyardMethod;
+                if (inBounds == null || !inBounds.getDeclaringClass().isAssignableFrom(container.getClass())) {
+                    Method discovered = container.getClass().getMethod("inBounds", ChunkPos.class);
+                    mspell$isSablePlotyardMethod = discovered;
+                    inBounds = discovered;
+                }
+                inPlotyard = Boolean.TRUE.equals(inBounds.invoke(container, chunkPos));
+            }
+        } catch (ReflectiveOperationException | LinkageError ignored) {
+            inPlotyard = false;
+        }
+
+        synchronized (mspell$sableStorageChunkCache) {
+            Map<Long, Boolean> levelCache = mspell$sableStorageChunkCache.computeIfAbsent(
+                    level, ignored -> new HashMap<>());
+            if (levelCache.size() >= 32768) levelCache.clear();
+            levelCache.put(chunkKey, inPlotyard);
+        }
+        return inPlotyard;
     }
+
 }

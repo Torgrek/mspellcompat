@@ -76,10 +76,12 @@ public abstract class MixinBurntFlowingFluidTick {
                 hasAdjacentWater.invoke(null, (LevelAccessor) level,
                         (double) targetPos.getX(), (double) targetPos.getY(), (double) targetPos.getZ());
             } catch (Throwable failure) {
-                MSpellCompatDebug.debugException(
-                        "[MSpellCompatDebug][burnt_water] Immediate Burnt check failed at " + targetPos,
-                        failure
-                );
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.debugException(
+                            "[MSpellCompatDebug][burnt_water] Immediate Burnt check failed at " + targetPos,
+                            failure
+                    );
+                }
                 continue;
             }
 
@@ -94,15 +96,19 @@ public abstract class MixinBurntFlowingFluidTick {
                 if (!after.isEmpty()) {
                     level.scheduleTick(pos, after.getType(), after.getType().getTickDelay(level));
                 }
-                MSpellCompatDebug.log("burnt_water", "flow_tick_intercepted",
-                        "waterPos=" + pos + ",target=" + targetPos + ",beforeAmount=" + before.getAmount()
-                                + ",afterAmount=" + afterAmount + ",consumed=" + consumed
-                                + ",scheduledRemainder=" + !after.isEmpty());
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.log("burnt_water", "flow_tick_intercepted",
+                            "waterPos=" + pos + ",target=" + targetPos + ",beforeAmount=" + before.getAmount()
+                                    + ",afterAmount=" + afterAmount + ",consumed=" + consumed
+                                    + ",scheduledRemainder=" + !after.isEmpty());
+                }
                 ci.cancel();
             } else {
-                MSpellCompatDebug.log("burnt_water", "flow_tick_target_extinguished",
-                        "waterPos=" + pos + ",target=" + targetPos + ",layersConsumed=" + consumed
-                                + ",configuredCost=" + layersToConsume + ",waterRemaining=" + afterAmount);
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.log("burnt_water", "flow_tick_target_extinguished",
+                            "waterPos=" + pos + ",target=" + targetPos + ",layersConsumed=" + consumed
+                                    + ",configuredCost=" + layersToConsume + ",waterRemaining=" + afterAmount);
+                }
             }
             return;
         }
@@ -133,10 +139,12 @@ public abstract class MixinBurntFlowingFluidTick {
                     mspell$hasAdjacentWaterMethod = method;
                 }
             } catch (Throwable failure) {
-                MSpellCompatDebug.debugException(
-                        "[MSpellCompatDebug][burnt_water] Could not resolve Burnt water predicate",
-                        failure
-                );
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.debugException(
+                            "[MSpellCompatDebug][burnt_water] Could not resolve Burnt water predicate",
+                            failure
+                    );
+                }
             }
             mspell$hasAdjacentWaterResolved = true;
             return mspell$hasAdjacentWaterMethod;

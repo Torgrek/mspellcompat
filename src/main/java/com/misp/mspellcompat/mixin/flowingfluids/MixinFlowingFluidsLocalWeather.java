@@ -91,16 +91,20 @@ public abstract class MixinFlowingFluidsLocalWeather {
                 var precipitation = clouds.getPrecipitationAt(fluidPos.above());
                 boolean result = Boolean.TRUE.equals(precipitation.getLeft())
                         && precipitation.getRight() == Biome.Precipitation.RAIN;
-                MSpellCompatDebug.log("flowing_fluids_weather", "rain_decision",
-                        "mode=simpleclouds_local,pos=" + fluidPos + ",precipitation=" + precipitation
-                                + ",result=" + result + "," + MSpellCompatDebug.describeLevel(level));
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.log("flowing_fluids_weather", "rain_decision",
+                            "mode=simpleclouds_local,pos=" + fluidPos + ",precipitation=" + precipitation
+                                    + ",result=" + result + "," + MSpellCompatDebug.describeLevel(level));
+                }
                 return result;
             }
         }
         boolean result = level.isRaining();
-        MSpellCompatDebug.log("flowing_fluids_weather", "rain_decision",
-                "mode=vanilla_fallback,pos=" + fluidPos + ",result=" + result
-                        + "," + MSpellCompatDebug.describeLevel(level));
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.log("flowing_fluids_weather", "rain_decision",
+                    "mode=vanilla_fallback,pos=" + fluidPos + ",result=" + result
+                            + "," + MSpellCompatDebug.describeLevel(level));
+        }
         return result;
     }
 }

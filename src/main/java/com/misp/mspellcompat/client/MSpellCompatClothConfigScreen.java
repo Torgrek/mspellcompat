@@ -23,8 +23,10 @@ public final class MSpellCompatClothConfigScreen {
                     MSpellCompatConfig.SPEC.save();
                     SableFluidPhysicsConfig.SPEC.save();
                     MSpellCompatDebug.refreshFromConfig();
-                    MSpellCompatDebug.log("client_config", "settings_saved", "debugLogging="
-                            + MSpellCompatConfig.DEBUG_LOGGING.get());
+                    if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                        MSpellCompatDebug.log("client_config", "settings_saved", "debugLogging="
+                                + MSpellCompatConfig.DEBUG_LOGGING.get());
+                    }
                 });
 
         ConfigEntryBuilder entries = builder.entryBuilder();
@@ -111,6 +113,18 @@ public final class MSpellCompatClothConfigScreen {
         );
         addBoolean(sable, entries, "mspellcompat.gui.sable_impact.enabled.tooltip",
                 "mspellcompat.gui.sable_impact.enabled", SableFluidPhysicsConfig.IMPACT_DISPLACEMENT_ENABLED);
+        addInt(sable, entries, "mspellcompat.gui.sable_impact.scan_interval.tooltip",
+                "mspellcompat.gui.sable_impact.scan_interval", SableFluidPhysicsConfig.IMPACT_PROCESS_INTERVAL_TICKS,
+                1, 40);
+        addInt(sable, entries, "mspellcompat.gui.sable_impact.cleanup_interval.tooltip",
+                "mspellcompat.gui.sable_impact.cleanup_interval", SableFluidPhysicsConfig.IMPACT_CLEANUP_INTERVAL_TICKS,
+                1, 1200);
+        addInt(sable, entries, "mspellcompat.gui.sable_impact.history_retention.tooltip",
+                "mspellcompat.gui.sable_impact.history_retention", SableFluidPhysicsConfig.IMPACT_HISTORY_RETENTION_TICKS,
+                100, 72000);
+        addInt(sable, entries, "mspellcompat.gui.sable_impact.max_world_scan_cells.tooltip",
+                "mspellcompat.gui.sable_impact.max_world_scan_cells", SableFluidPhysicsConfig.IMPACT_MAX_WORLD_SCAN_CELLS,
+                512, 1048576);
         addDouble(sable, entries, "mspellcompat.gui.sable_impact.minimum_mass.tooltip",
                 "mspellcompat.gui.sable_impact.minimum_mass", SableFluidPhysicsConfig.IMPACT_MINIMUM_MASS,
                 0.0, 1.0e9);
@@ -144,6 +158,19 @@ public final class MSpellCompatClothConfigScreen {
         addBoolean(sable, entries, "mspellcompat.gui.sable_impact.use_sable_beyond_mass.tooltip",
                 "mspellcompat.gui.sable_impact.use_sable_beyond_mass",
                 SableFluidPhysicsConfig.IMPACT_USE_SABLE_BEYOND_MASS);
+
+        ConfigCategory treePhysics = builder.getOrCreateCategory(
+                Component.translatable("mspellcompat.gui.category.tree_physics")
+        );
+        addBoolean(treePhysics, entries, "mspellcompat.gui.tree_physics.enabled.tooltip",
+                "mspellcompat.gui.tree_physics.enabled", MSpellCompatConfig.TREE_PHYSICS_DAMAGE_ENABLED);
+        addBoolean(treePhysics, entries, "mspellcompat.gui.tree_physics.explosions.tooltip",
+                "mspellcompat.gui.tree_physics.explosions", MSpellCompatConfig.TREE_PHYSICS_EXPLOSION_FELLING_ENABLED);
+        addBoolean(treePhysics, entries, "mspellcompat.gui.tree_physics.block_damage.tooltip",
+                "mspellcompat.gui.tree_physics.block_damage", MSpellCompatConfig.TREE_PHYSICS_BLOCK_DAMAGE_FELLING_ENABLED);
+        addInt(treePhysics, entries, "mspellcompat.gui.tree_physics.suppression_cleanup_interval.tooltip",
+                "mspellcompat.gui.tree_physics.suppression_cleanup_interval",
+                MSpellCompatConfig.TREE_PHYSICS_SUPPRESSION_CLEANUP_INTERVAL_TICKS, 1, 1200);
 
         return builder.build();
     }

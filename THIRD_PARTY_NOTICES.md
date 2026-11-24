@@ -35,3 +35,16 @@ SOFTWARE.
 ```
 
 Runtime dependencies are downloaded from Modrinth during the development build and are not bundled in the MSpell Compatibility Suite JAR. Their licenses remain with their respective authors.
+
+## Optional Tree Physics integration
+
+MSpell Compatibility Suite calls Tree Physics 2.4's public `FloodFillUtil.blockBroken` API when tree-log blocks are affected by explosions or removed by server-side block destruction. Tree validation, tags, configuration, Sable sub-level assembly, and falling physics remain implemented by Tree Physics. No Tree Physics source code or binary is copied into this project; Tree Physics remains a separate optional runtime dependency.
+
+- Project page: https://modrinth.com/mod/tree-physics
+- Source code: https://github.com/Monad-Modding/tree-physics
+
+## Optional Sable: Destructive compatibility
+
+The integration also observes server-side block replacement, allowing Sable: Destructive's world-damage path to trigger Tree Physics when it removes tagged tree logs. No Sable: Destructive source code is copied into this project.
+
+- Project page: https://modrinth.com/mod/sable-destructive

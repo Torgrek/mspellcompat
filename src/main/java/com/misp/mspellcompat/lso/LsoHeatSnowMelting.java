@@ -15,17 +15,16 @@ import net.minecraft.world.level.block.SnowLayerBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.material.Fluids;
-import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModList;
-import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import traben.flowing_fluids.FFFluidUtils;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
-@EventBusSubscriber(modid = "mspellcompat")
 public final class LsoHeatSnowMelting {
     private static volatile Method worldTemperatureMethod;
     private static volatile boolean worldTemperatureMethodResolved;
@@ -37,7 +36,6 @@ public final class LsoHeatSnowMelting {
     private LsoHeatSnowMelting() {
     }
 
-    @SubscribeEvent
     public static void onServerTickPre(ServerTickEvent.Pre event) {
         if (!MSpellCompatConfig.LSO_HEAT_SNOW_MELTING_ENABLED.get()
                 || !ModList.get().isLoaded("legendarysurvivaloverhaul")
@@ -51,6 +49,7 @@ public final class LsoHeatSnowMelting {
         int maxMelted = MSpellCompatConfig.LSO_SNOW_MELTING_MAX_BLOCKS_PER_SCAN.get();
         int melted = 0;
         for (ServerLevel level : server.getAllLevels()) {
+            Map<Long, Boolean> heatSourceCache = new HashMap<>();
             for (Player player : level.players()) {
                 BlockPos base = player.blockPosition();
                 for (int x = -radius; x <= radius && melted < maxMelted; x++) {
@@ -60,7 +59,7 @@ public final class LsoHeatSnowMelting {
                             if (!level.hasChunkAt(pos)) continue;
                             BlockState state = level.getBlockState(pos);
                             if (!isSnow(state)) continue;
-                            if (tryMelt(level, pos, state, level.getRandom())) melted++;
+                            if (tryMelt(level, pos, state, level.getRandom(), heatSourceCache)) melted++;
                         }
                     }
                     if (melted >= maxMelted) break;
@@ -71,6 +70,11 @@ public final class LsoHeatSnowMelting {
     }
 
     public static boolean tryMelt(ServerLevel level, BlockPos pos, BlockState state, net.minecraft.util.RandomSource random) {
+        return tryMelt(level, pos, state, random, null);
+    }
+
+    private static boolean tryMelt(ServerLevel level, BlockPos pos, BlockState state,
+                                   net.minecraft.util.RandomSource random, Map<Long, Boolean> heatSourceCache) {
         if (!MSpellCompatConfig.LSO_HEAT_SNOW_MELTING_ENABLED.get() || !isSnow(state)) return false;
 
         float temperature;
@@ -83,7 +87,7 @@ public final class LsoHeatSnowMelting {
         if (!Float.isFinite(temperature)) return false;
 
         boolean ambientHot = temperature >= MSpellCompatConfig.LSO_SNOW_MELTING_MIN_AMBIENT_TEMPERATURE.get();
-        boolean heatDriven = !ambientHot && hasConfiguredHeatSource(level, pos);
+        boolean heatDriven = !ambientHot && hasConfiguredHeatSource(level, pos, heatSourceCache);
         if (!ambientHot && !heatDriven) return false;
 
         int chanceDenominator = heatDriven
@@ -104,24 +108,44 @@ public final class LsoHeatSnowMelting {
             return false;
         }
 
-        MSpellCompatDebug.log("lso_snow_melting", "snow_melted", "pos=" + pos + ",temperature="
-                + temperature + ",source=" + (heatDriven ? "heat" : "ambient") + ",units=" + units);
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.log("lso_snow_melting", "snow_melted", "pos=" + pos + ",temperature="
+                    + temperature + ",source=" + (heatDriven ? "heat" : "ambient") + ",units=" + units);
+        }
         return true;
     }
 
-    private static boolean hasConfiguredHeatSource(ServerLevel level, BlockPos snowPos) {
+    private static boolean hasConfiguredHeatSource(ServerLevel level, BlockPos snowPos,
+                                                   Map<Long, Boolean> heatSourceCache) {
+        if (lsoBlockTemperatureDataResolved && (lsoBlockTemperatureDataMethod == null
+                || lsoBlockTemperatureMatchesStateMethod == null || lsoBlockTemperatureValueField == null)) {
+            return false;
+        }
         int radius = MSpellCompatConfig.LSO_SNOW_MELTING_HEAT_SOURCE_RADIUS.get();
         for (int dx = -radius; dx <= radius; dx++) {
             for (int dy = -radius; dy <= radius; dy++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
                     BlockPos sourcePos = snowPos.offset(dx, dy, dz);
-                    if (!level.hasChunkAt(sourcePos)) continue;
+                    long sourceKey = sourcePos.asLong();
+                    Boolean cachedResult = heatSourceCache == null ? null : heatSourceCache.get(sourceKey);
+                    if (cachedResult != null) {
+                        if (cachedResult) return true;
+                        continue;
+                    }
+                    if (!level.hasChunkAt(sourcePos)) {
+                        if (heatSourceCache != null) heatSourceCache.put(sourceKey, false);
+                        continue;
+                    }
 
                     BlockState sourceState = level.getBlockState(sourcePos);
                     ResourceLocation blockId = BuiltInRegistries.BLOCK.getKey(sourceState.getBlock());
-                    if (blockId == null) continue;
+                    if (blockId == null) {
+                        if (heatSourceCache != null) heatSourceCache.put(sourceKey, false);
+                        continue;
+                    }
 
+                    boolean configuredHeatSource = false;
                     try {
                         List<?> temperatureEntries = getLsoBlockTemperatureDataMethod().invoke(null, blockId) instanceof List<?> list
                                 ? list : List.of();
@@ -129,12 +153,16 @@ public final class LsoHeatSnowMelting {
                             float sourceTemperature = lsoBlockTemperatureValueField.getFloat(entry);
                             if (sourceTemperature <= 0.0F) continue;
                             if (Boolean.TRUE.equals(lsoBlockTemperatureMatchesStateMethod.invoke(entry, sourceState))) {
-                                return true;
+                                configuredHeatSource = true;
+                                break;
                             }
                         }
                     } catch (ReflectiveOperationException | IllegalArgumentException ignored) {
+                        if (heatSourceCache != null) heatSourceCache.put(sourceKey, false);
                         return false;
                     }
+                    if (heatSourceCache != null) heatSourceCache.put(sourceKey, configuredHeatSource);
+                    if (configuredHeatSource) return true;
                 }
             }
         }

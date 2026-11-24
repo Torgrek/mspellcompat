@@ -28,24 +28,32 @@ public abstract class MixinBurntSimpleCloudsRain {
     ) {
         boolean originalResult = cir.getReturnValueZ();
         if (!originalResult) {
-            MSpellCompatDebug.log("burnt_rain", "rain_can_reach",
-                    "pos=" + pos + ",original=false,final=false,reason=original_rejected");
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("burnt_rain", "rain_can_reach",
+                        "pos=" + pos + ",original=false,final=false,reason=original_rejected");
+            }
             return;
         }
         if (level.isClientSide()) {
-            MSpellCompatDebug.log("burnt_rain", "rain_can_reach",
-                    "pos=" + pos + ",original=true,client=true,final=true,reason=client_side");
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("burnt_rain", "rain_can_reach",
+                        "pos=" + pos + ",original=true,client=true,final=true,reason=client_side");
+            }
             return;
         }
         boolean featureEnabled = MSpellCompatConfig.BURNT_REQUIRE_LOCAL_SIMPLE_CLOUDS_RAIN.get();
         if (!featureEnabled) {
-            MSpellCompatDebug.log("burnt_rain", "rain_can_reach",
-                    "pos=" + pos + ",original=true,featureEnabled=false,final=true,reason=config_disabled");
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("burnt_rain", "rain_can_reach",
+                        "pos=" + pos + ",original=true,featureEnabled=false,final=true,reason=config_disabled");
+            }
             return;
         }
         if (!(level instanceof ServerLevel serverLevel)) {
-            MSpellCompatDebug.log("burnt_rain", "rain_can_reach",
-                    "pos=" + pos + ",original=true,featureEnabled=true,final=true,reason=not_server_level");
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("burnt_rain", "rain_can_reach",
+                        "pos=" + pos + ",original=true,featureEnabled=true,final=true,reason=not_server_level");
+            }
             return;
         }
 
@@ -53,8 +61,10 @@ public abstract class MixinBurntSimpleCloudsRain {
         if (clouds.shouldUseVanillaWeather()) {
             boolean result = serverLevel.isRainingAt(pos);
             cir.setReturnValue(result);
-            MSpellCompatDebug.log("burnt_rain", "rain_can_reach_override",
-                    "mode=vanilla,pos=" + pos + ",original=" + originalResult + ",final=" + result);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("burnt_rain", "rain_can_reach_override",
+                        "mode=vanilla,pos=" + pos + ",original=" + originalResult + ",final=" + result);
+            }
             return;
         }
 
@@ -62,8 +72,10 @@ public abstract class MixinBurntSimpleCloudsRain {
         boolean rainingHere = Boolean.TRUE.equals(precipitation.getLeft())
                 && precipitation.getRight() == Biome.Precipitation.RAIN;
         cir.setReturnValue(rainingHere);
-        MSpellCompatDebug.log("burnt_rain", "rain_can_reach_override",
-                "mode=simpleclouds,pos=" + pos + ",original=" + originalResult
-                        + ",precipitation=" + precipitation + ",final=" + rainingHere);
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.log("burnt_rain", "rain_can_reach_override",
+                    "mode=simpleclouds,pos=" + pos + ",original=" + originalResult
+                            + ",precipitation=" + precipitation + ",final=" + rainingHere);
+        }
     }
 }

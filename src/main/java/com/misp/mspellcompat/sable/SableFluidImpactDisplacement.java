@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class SableFluidImpactDisplacement {
     private static final String SABLE_CONTAINER_CLASS =
@@ -33,6 +34,9 @@ public final class SableFluidImpactDisplacement {
 
     private static final long MAX_WORLD_SCAN_CELLS = 32_768L;
     private static final int MAX_WATERLINE_SEARCH_STEPS = 48;
+    private static final double MINIMUM_IMPACT_VELOCITY_CHANGE = 0.75;
+    private static final double MINIMUM_MASS_CHANGE_TO_DEFER_IMPACT = 0.0625;
+    private static final long MASS_CHANGE_IMPACT_GUARD_TICKS = 4L;
     private static final double[] CELL_SAMPLE_OFFSETS = {0.2, 0.5, 0.8};
 
     private static final Map<MinecraftServer, RuntimeState> RUNTIME = new WeakHashMap<>();
@@ -40,6 +44,9 @@ public final class SableFluidImpactDisplacement {
     private static volatile FluidAccess cachedFluidAccess;
     private static volatile boolean fluidLookupAttempted;
     private static volatile boolean activationLogged;
+    private static volatile Method GET_CONTAINER_METHOD;
+    private static final Map<NoArgMethodKey, Method> NO_ARG_METHODS = new ConcurrentHashMap<>();
+    private static final Map<Class<?>, Method> INVERSE_POSITION_METHODS = new ConcurrentHashMap<>();
 
     private SableFluidImpactDisplacement() {
     }
@@ -64,15 +71,17 @@ public final class SableFluidImpactDisplacement {
         }
 
         if (!activationLogged) {
-            MSpellCompatDebug.debug("[SableFluidImpactDisplacement][STAGE2.11.3-IMPACT-DISPLACEMENT-WATERLINE-SPLASH] active=true minMass={} minSpeed={} radius={} maxSourceBlocks={} splashUnitsPerBlock={} splashUnitsPerTick={} cooldownTicks={} maxEventsPerTick={}",
-                    SableFluidPhysicsConfig.IMPACT_MINIMUM_MASS.get(),
-                    SableFluidPhysicsConfig.IMPACT_MINIMUM_SPEED.get(),
-                    SableFluidPhysicsConfig.IMPACT_SPLASH_RADIUS.get(),
-                    SableFluidPhysicsConfig.IMPACT_MAX_SOURCE_BLOCKS_PER_EVENT.get(),
-                    SableFluidPhysicsConfig.IMPACT_SPLASH_UNITS_PER_BLOCK.get(),
-                    SableFluidPhysicsConfig.IMPACT_MAX_SPLASH_UNITS_PER_TICK.get(),
-                    SableFluidPhysicsConfig.IMPACT_COOLDOWN_TICKS.get(),
-                    SableFluidPhysicsConfig.IMPACT_MAX_EVENTS_PER_TICK.get());
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.debug("Sable fluid impact settings: minMass={} minSpeed={} radius={} maxSourceBlocks={} splashUnitsPerBlock={} splashUnitsPerTick={} cooldownTicks={} maxEventsPerTick={}",
+                        SableFluidPhysicsConfig.IMPACT_MINIMUM_MASS.get(),
+                        SableFluidPhysicsConfig.IMPACT_MINIMUM_SPEED.get(),
+                        SableFluidPhysicsConfig.IMPACT_SPLASH_RADIUS.get(),
+                        SableFluidPhysicsConfig.IMPACT_MAX_SOURCE_BLOCKS_PER_EVENT.get(),
+                        SableFluidPhysicsConfig.IMPACT_SPLASH_UNITS_PER_BLOCK.get(),
+                        SableFluidPhysicsConfig.IMPACT_MAX_SPLASH_UNITS_PER_TICK.get(),
+                        SableFluidPhysicsConfig.IMPACT_COOLDOWN_TICKS.get(),
+                        SableFluidPhysicsConfig.IMPACT_MAX_EVENTS_PER_TICK.get());
+            }
             activationLogged = true;
         }
 
@@ -108,9 +117,25 @@ public final class SableFluidImpactDisplacement {
                         && SableFluidPhysicsConfig.IMPACT_WATER_LOSS_PERCENT.get() < 100)) {
                     break;
                 }
+                if (!SableSublevelActivity.hasNearbyPlayer(level, sublevel)) continue;
                 ImpactSublevel impact = prepare(level, sublevel);
-                if (impact == null || impact.mass() < SableFluidPhysicsConfig.IMPACT_MINIMUM_MASS.get()
-                        || impact.speed() < SableFluidPhysicsConfig.IMPACT_MINIMUM_SPEED.get()) {
+                if (impact == null) continue;
+
+                VelocitySample previousVelocity = runtime.lastVelocityBySublevel.put(
+                        impact.key(), new VelocitySample(impact.velocity(), impact.mass(), gameTime));
+                if (previousVelocity == null || gameTime - previousVelocity.gameTime() != 1L) continue;
+
+                double massChange = Math.abs(impact.mass() - previousVelocity.mass());
+                if (massChange >= MINIMUM_MASS_CHANGE_TO_DEFER_IMPACT) {
+                    runtime.lastMassChangeAt.put(impact.key(), gameTime);
+                }
+                long lastMassChange = runtime.lastMassChangeAt.getOrDefault(
+                        impact.key(), Long.MIN_VALUE / 2);
+                if (gameTime - lastMassChange <= MASS_CHANGE_IMPACT_GUARD_TICKS) continue;
+
+                double velocityChange = impact.velocity().subtract(previousVelocity.velocity()).length();
+                if (impact.mass() < SableFluidPhysicsConfig.IMPACT_MINIMUM_MASS.get()
+                        || !isImpactLikeVelocityChange(previousVelocity.velocity(), impact.velocity())) {
                     continue;
                 }
 
@@ -132,23 +157,50 @@ public final class SableFluidImpactDisplacement {
                 runtime.lastImpactAt.put(impact.key(), gameTime);
                 ImpactResult result = displaceImpact(impact, candidates, fluids, runtime);
                 if (result.sourceBlocks() <= 0) {
-                    MSpellCompatDebug.debug("[SableFluidImpactDisplacement][STAGE2.11.3-IMPACT-DISPLACEMENT-WATERLINE-SPLASH] overlap-without-displacement sublevel={} mass={} speed={} candidates={} splashRadius={} waterlineSearch={} reason=no-safe-waterline-splash-plan-or-fluid-write-failed",
-                            impact.id(), format(impact.mass()), format(impact.speed()), candidates.size(),
-                            result.splashRadius(), MAX_WATERLINE_SEARCH_STEPS);
+                    if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                        MSpellCompatDebug.debug("Sable fluid overlap without displacement: sublevel={} mass={} speed={} candidates={} splashRadius={} waterlineSearch={} reason=no_safe_waterline_splash_plan_or_fluid_write_failed",
+                                impact.id(), format(impact.mass()), format(impact.speed()), candidates.size(),
+                                result.splashRadius(), MAX_WATERLINE_SEARCH_STEPS);
+                    }
                     continue;
                 }
 
                 String massSource = SableFluidPhysicsConfig.IMPACT_USE_SABLE_BEYOND_MASS.get()
                         && ModList.get().isLoaded("sable_beyond")
                         ? "sable_aggregate_with_sable_beyond_integration" : "sable_aggregate_fallback";
-                MSpellCompatDebug.debug("[SableFluidImpactDisplacement][STAGE2.11.3-IMPACT-DISPLACEMENT-WATERLINE-SPLASH] event sublevel={} mass={} massSource={} speed={} splashRadius={} sourceBlocks={} sourceUnits={} splashUnits={} lossUnits={} firstSource={} firstSplash={}",
-                        impact.id(), format(impact.mass()), massSource, format(impact.speed()), result.splashRadius(),
-                        result.sourceBlocks(), result.sourceUnits(), result.splashUnits(), result.lossUnits(),
-                        result.firstSource(), result.firstSplash());
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.debug("Sable fluid impact processed: sublevel={} mass={} massSource={} speed={} velocityChange={} splashRadius={} sourceBlocks={} sourceUnits={} splashUnits={} lossUnits={} firstSource={} firstSplash={}",
+                            impact.id(), format(impact.mass()), massSource, format(impact.speed()), format(velocityChange),
+                            result.splashRadius(), result.sourceBlocks(), result.sourceUnits(), result.splashUnits(),
+                            result.lossUnits(), result.firstSource(), result.firstSplash());
+                }
             }
         }
 
-        runtime.lastImpactAt.entrySet().removeIf(entry -> gameTime - entry.getValue() > 1_200L);
+        if (gameTime - runtime.lastCleanupTime >= 100L) {
+            runtime.lastImpactAt.entrySet().removeIf(entry -> gameTime - entry.getValue() > 1_200L);
+            runtime.lastVelocityBySublevel.entrySet().removeIf(entry ->
+                    gameTime - entry.getValue().gameTime() > 1_200L);
+            runtime.lastMassChangeAt.entrySet().removeIf(entry -> gameTime - entry.getValue() > 1_200L);
+            runtime.lastCleanupTime = gameTime;
+        }
+    }
+
+    private static boolean isImpactLikeVelocityChange(Vec3 previous, Vec3 current) {
+        double previousSpeed = previous.length();
+        double currentSpeed = current.length();
+        double minimumSpeed = SableFluidPhysicsConfig.IMPACT_MINIMUM_SPEED.get();
+        if (previousSpeed < minimumSpeed) return false;
+
+        double velocityChange = current.subtract(previous).length();
+        if (velocityChange < MINIMUM_IMPACT_VELOCITY_CHANGE) return false;
+        if (previousSpeed - currentSpeed >= MINIMUM_IMPACT_VELOCITY_CHANGE) return true;
+        if (currentSpeed < minimumSpeed) return false;
+
+        double denominator = previousSpeed * currentSpeed;
+        if (denominator < 1.0e-9) return false;
+        double directionCosine = previous.dot(current) / denominator;
+        return directionCosine <= 0.5;
     }
 
     private static RuntimeState runtimeFor(MinecraftServer server, long gameTime) {
@@ -165,9 +217,14 @@ public final class SableFluidImpactDisplacement {
 
     private static Object getContainer(ServerLevel level) {
         try {
-            Class<?> type = Class.forName(SABLE_CONTAINER_CLASS, true,
-                    SableFluidImpactDisplacement.class.getClassLoader());
-            Method method = type.getMethod("getContainer", Level.class);
+            Method method = GET_CONTAINER_METHOD;
+            if (method == null) {
+                Class<?> type = Class.forName(SABLE_CONTAINER_CLASS, true,
+                        SableFluidImpactDisplacement.class.getClassLoader());
+                Method resolved = type.getMethod("getContainer", Level.class);
+                GET_CONTAINER_METHOD = resolved;
+                method = resolved;
+            }
             return method.invoke(null, level);
         } catch (Throwable throwable) {
             warnOnce("container-api", "Could not access Sable's sublevel container API.");
@@ -287,7 +344,7 @@ public final class SableFluidImpactDisplacement {
 
                     BlockPos localPos = new BlockPos(x, y, z);
                     BlockState localState = impact.accessor().getBlockState(localPos);
-                    if (localState.isAir() || !localState.getFluidState().isEmpty()) continue;
+                    if (localState.isAir()) continue;
                     var shape = localState.getCollisionShape(impact.accessor(), localPos);
                     if (shape.isEmpty()) continue;
                     double fracX = localX - x;
@@ -383,6 +440,9 @@ public final class SableFluidImpactDisplacement {
             sourceUnits += amount;
             splashUnits += recoverable;
             lossUnits += amount - recoverable;
+            for (SplashPlacement placement : placed) {
+                SableFluidTransport.markImpactSplash(impact.world(), placement.pos());
+            }
             reservedSplashPositions.addAll(placed.stream().map(SplashPlacement::pos).toList());
             if (firstSource == null) firstSource = candidate.pos();
             if (firstSplash == null && !placed.isEmpty()) firstSplash = placed.get(0).pos();
@@ -413,7 +473,7 @@ public final class SableFluidImpactDisplacement {
 
                     BlockPos target = splashOrigin.offset(dx, dy, dz);
                     if (reserved.contains(target) || !isEmptySplashTarget(impact.world(), target)) continue;
-                    if (mapsInsideStorage(impact, target)) continue;
+                    if (mapsInsideStorage(impact, target) || overlapsSolidLocalCell(impact, target)) continue;
 
                     int ax = Math.abs(dx);
                     int ay = Math.abs(dy);
@@ -512,8 +572,13 @@ public final class SableFluidImpactDisplacement {
 
     private static Vec3 inverseTransformPosition(Object pose, Vec3 worldPosition) {
         try {
-            Object result = pose.getClass().getMethod("transformPositionInverse", Vec3.class)
-                    .invoke(pose, worldPosition);
+            Method inverse = INVERSE_POSITION_METHODS.get(pose.getClass());
+            if (inverse == null) {
+                Method resolved = pose.getClass().getMethod("transformPositionInverse", Vec3.class);
+                Method previous = INVERSE_POSITION_METHODS.putIfAbsent(pose.getClass(), resolved);
+                inverse = previous == null ? resolved : previous;
+            }
+            Object result = inverse.invoke(pose, worldPosition);
             if (result instanceof Vec3 vector && Double.isFinite(vector.x)
                     && Double.isFinite(vector.y) && Double.isFinite(vector.z)) return vector;
         } catch (Throwable ignored) {
@@ -559,7 +624,15 @@ public final class SableFluidImpactDisplacement {
 
     private static Object invoke(Object target, String methodName) throws ReflectiveOperationException {
         if (target == null) throw new ReflectiveOperationException("null target for " + methodName + "()");
-        return target.getClass().getMethod(methodName).invoke(target);
+        Class<?> owner = target.getClass();
+        NoArgMethodKey key = new NoArgMethodKey(owner, methodName);
+        Method method = NO_ARG_METHODS.get(key);
+        if (method == null) {
+            Method resolved = owner.getMethod(methodName);
+            Method previous = NO_ARG_METHODS.putIfAbsent(key, resolved);
+            method = previous == null ? resolved : previous;
+        }
+        return method.invoke(target);
     }
 
     private static int readInt(Object target, String methodName) throws ReflectiveOperationException {
@@ -578,7 +651,9 @@ public final class SableFluidImpactDisplacement {
         synchronized (WARNED) {
             if (!WARNED.add(key)) return;
         }
-        MSpellCompatDebug.debug("[SableFluidImpactDisplacement] {}", message);
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.debug("[SableFluidImpactDisplacement] {}", message);
+        }
     }
 
     private record LocalBounds(int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
@@ -624,11 +699,20 @@ public final class SableFluidImpactDisplacement {
                                 BlockPos firstSource, BlockPos firstSplash, int splashRadius) {
     }
 
+    private record NoArgMethodKey(Class<?> owner, String name) {
+    }
+
+    private record VelocitySample(Vec3 velocity, double mass, long gameTime) {
+    }
+
     private static final class RuntimeState {
         private long gameTime = Long.MIN_VALUE;
+        private long lastCleanupTime = Long.MIN_VALUE;
         private int eventsProcessed;
         private int splashUnitsPlaced;
         private final Map<String, Long> lastImpactAt = new HashMap<>();
+        private final Map<String, Long> lastMassChangeAt = new HashMap<>();
+        private final Map<String, VelocitySample> lastVelocityBySublevel = new HashMap<>();
     }
 
     private static final class FluidAccess {

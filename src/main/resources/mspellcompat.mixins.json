@@ -17,7 +17,9 @@
     "burnt.MixinBurntSimpleCloudsRain",
     "sable.MixinSablePlotFluidTick",
     "modularbackpacks.MixinModularBackpacksTankSlotEvents",
-    "modularbackpacks.MixinModularBackpacksNativeTickGuard"
+    "modularbackpacks.MixinModularBackpacksNativeTickGuard",
+    "treephysics.MixinLevelTreePhysicsDamage",
+    "treephysics.MixinTreePhysicsFloodFillGuard"
   ],
   "client": [],
   "server": [],

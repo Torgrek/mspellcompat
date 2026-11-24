@@ -21,6 +21,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -34,6 +35,8 @@ public final class SableFluidMassIntegration {
 
     private static final Map<MinecraftServer, Map<String, TrackerState>> STATES = new WeakHashMap<>();
     private static final Map<Class<?>, Method> ADD_BLOCK_MASS_METHODS = new HashMap<>();
+    private static final Map<NoArgMethodKey, Method> NO_ARG_METHODS = new ConcurrentHashMap<>();
+    private static volatile Method GET_CONTAINER_METHOD;
 
     private SableFluidMassIntegration() {
     }
@@ -46,9 +49,12 @@ public final class SableFluidMassIntegration {
         ServerLevel overworld = server.overworld();
         long gameTime = overworld.getGameTime();
         int scanInterval = SableFluidRuntimeConfig.MASS_SCAN_INTERVAL_TICKS.get();
-        if (gameTime % scanInterval != 0L) return;
-        MSpellCompatDebug.log("sable_mass", "scan_begin", "gameTime=" + gameTime
-                + ",interval=" + scanInterval);
+        int scanPhase = scanInterval / 2;
+        if (Math.floorMod(gameTime, scanInterval) != scanPhase) return;
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.log("sable_mass", "scan_begin", "gameTime=" + gameTime
+                    + ",interval=" + scanInterval);
+        }
 
         Set<String> activeKeys = new HashSet<>();
         boolean enumerationComplete = true;
@@ -58,9 +64,7 @@ public final class SableFluidMassIntegration {
         }
 
         try {
-            Class<?> containerClass = Class.forName(SABLE_CONTAINER_CLASS, true,
-                    SableFluidMassIntegration.class.getClassLoader());
-            Method getContainer = containerClass.getMethod("getContainer", ServerLevel.class);
+            Method getContainer = getContainerMethod();
 
             for (ServerLevel level : server.getAllLevels()) {
                 Object container = getContainer.invoke(null, level);
@@ -70,24 +74,33 @@ public final class SableFluidMassIntegration {
 
                 for (Object sublevel : sublevels) {
                     if (Boolean.TRUE.equals(invoke(sublevel, "isRemoved"))) {
-                        MSpellCompatDebug.log("sable_mass", "sublevel_skip", "reason=removed,dimension=" + level.dimension().location());
+                        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                            MSpellCompatDebug.log("sable_mass", "sublevel_skip", "reason=removed,dimension=" + level.dimension().location());
+                        }
                         continue;
                     }
                     String id = String.valueOf(invoke(sublevel, "getUniqueId"));
                     String key = level.dimension().location() + "|" + id;
                     activeKeys.add(key);
-                    MSpellCompatDebug.log("sable_mass", "sublevel_found", "key=" + key);
+                    if (!SableSublevelActivity.hasNearbyPlayer(level, sublevel)) continue;
+                    if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                        MSpellCompatDebug.log("sable_mass", "sublevel_found", "key=" + key);
+                    }
                     processSublevel(level, sublevel, key, gameTime, serverStates);
                 }
             }
         } catch (Throwable failure) {
             enumerationComplete = false;
-            MSpellCompatDebug.error("sable_mass", "enumeration_failed", failure,
-                    "gameTime=" + gameTime + ",activeKeys=" + activeKeys.size());
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.error("sable_mass", "enumeration_failed", failure,
+                        "gameTime=" + gameTime + ",activeKeys=" + activeKeys.size());
+            }
         }
-        MSpellCompatDebug.log("sable_mass", "scan_end", "gameTime=" + gameTime
-                + ",enumerationComplete=" + enumerationComplete + ",activeSublevels=" + activeKeys.size()
-                + ",trackedSublevels=" + serverStates.size());
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.log("sable_mass", "scan_end", "gameTime=" + gameTime
+                    + ",enumerationComplete=" + enumerationComplete + ",activeSublevels=" + activeKeys.size()
+                    + ",trackedSublevels=" + serverStates.size());
+        }
 
         if (enumerationComplete) {
             serverStates.keySet().removeIf(key -> !activeKeys.contains(key));
@@ -114,24 +127,30 @@ public final class SableFluidMassIntegration {
                     || width > maxScanCells || height > maxScanCells || depth > maxScanCells
                     || width * height > maxScanCells
                     || width * height * depth > maxScanCells) {
-                MSpellCompatDebug.log("sable_mass", "sublevel_skip", "key=" + key + ",reason=scan_bounds_limit"
-                        + ",bounds=" + minX + "," + minY + "," + minZ + ".." + maxX + "," + maxY + "," + maxZ
-                        + ",volume=" + (width * height * depth));
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.log("sable_mass", "sublevel_skip", "key=" + key + ",reason=scan_bounds_limit"
+                            + ",bounds=" + minX + "," + minY + "," + minZ + ".." + maxX + "," + maxY + "," + maxZ
+                            + ",volume=" + (width * height * depth));
+                }
                 return;
             }
 
             BlockPos center = (BlockPos) invoke(plot, "getCenterBlock");
             Object rawAccessor = invoke(plot, "getEmbeddedLevelAccessor");
             if (!(rawAccessor instanceof LevelAccessor accessor)) {
-                MSpellCompatDebug.log("sable_mass", "sublevel_skip", "key=" + key + ",reason=no_level_accessor,type="
-                        + (rawAccessor == null ? "null" : rawAccessor.getClass().getName()));
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.log("sable_mass", "sublevel_skip", "key=" + key + ",reason=no_level_accessor,type="
+                            + (rawAccessor == null ? "null" : rawAccessor.getClass().getName()));
+                }
                 return;
             }
 
             StorageBounds storage = new StorageBounds(minX, minY, minZ, maxX, maxY, maxZ);
             if (!storageChunksAlreadyLoaded(world, storage)) {
-                MSpellCompatDebug.log("sable_mass", "sublevel_skip", "key=" + key + ",reason=storage_chunks_not_loaded"
-                        + ",bounds=" + storage);
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.log("sable_mass", "sublevel_skip", "key=" + key + ",reason=storage_chunks_not_loaded"
+                            + ",bounds=" + storage);
+                }
                 return;
             }
 
@@ -141,7 +160,9 @@ public final class SableFluidMassIntegration {
 
             Object selfMassTracker = invoke(sublevel, "getSelfMassTracker");
             if (selfMassTracker == null) {
-                MSpellCompatDebug.log("sable_mass", "sublevel_skip", "key=" + key + ",reason=no_mass_tracker");
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.log("sable_mass", "sublevel_skip", "key=" + key + ",reason=no_mass_tracker");
+                }
                 return;
             }
 
@@ -159,7 +180,9 @@ public final class SableFluidMassIntegration {
             }
 
             if (state.hullBounds == null) {
-                MSpellCompatDebug.log("sable_mass", "hull_missing", "key=" + key + ",storage=" + storage);
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.log("sable_mass", "hull_missing", "key=" + key + ",storage=" + storage);
+                }
                 removePreviousWaterMassIfSafe(key, state, accessor, center, selfMassTracker);
                 return;
             }
@@ -170,14 +193,18 @@ public final class SableFluidMassIntegration {
             double massBefore = readMass(selfMassTracker);
             double previousWaterMass = previousTotalUnits / 8.0 * SableFluidRuntimeConfig.MASS_WATER_MASS_PER_FULL_BLOCK.get();
             double structuralMass = massBefore - previousWaterMass;
-            MSpellCompatDebug.log("sable_mass", "snapshot", "key=" + key + ",gameTime=" + gameTime
-                    + ",waterCells=" + currentWaterUnits.size() + ",currentWaterUnits=" + currentTotalUnits
-                    + ",previousWaterUnits=" + previousTotalUnits + ",massBefore=" + massBefore
-                    + ",previousWaterMass=" + previousWaterMass + ",structuralMass=" + structuralMass
-                    + ",hull=" + state.hullBounds);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("sable_mass", "snapshot", "key=" + key + ",gameTime=" + gameTime
+                        + ",waterCells=" + currentWaterUnits.size() + ",currentWaterUnits=" + currentTotalUnits
+                        + ",previousWaterUnits=" + previousTotalUnits + ",massBefore=" + massBefore
+                        + ",previousWaterMass=" + previousWaterMass + ",structuralMass=" + structuralMass
+                        + ",hull=" + state.hullBounds);
+            }
             if (!Double.isFinite(structuralMass) || structuralMass <= 1.0e-6) {
-                MSpellCompatDebug.log("sable_mass", "sublevel_skip", "key=" + key + ",reason=invalid_structural_mass"
-                        + ",structuralMass=" + structuralMass);
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.log("sable_mass", "sublevel_skip", "key=" + key + ",reason=invalid_structural_mass"
+                            + ",structuralMass=" + structuralMass);
+                }
                 return;
             }
             List<AppliedDelta> applied = new ArrayList<>();
@@ -198,9 +225,11 @@ public final class SableFluidMassIntegration {
                     BlockPos plotPos = center.offset(localCell.x(), localCell.y(), localCell.z());
                     addBlockMass.invoke(selfMassTracker, accessor, waterBlock, plotPos, deltaMass, null);
                     applied.add(new AppliedDelta(plotPos, deltaMass));
-                    MSpellCompatDebug.log("sable_mass", "cell_mass_delta", "key=" + key + ",cell=" + localCell
-                            + ",plotPos=" + plotPos + ",beforeUnits=" + beforeUnits + ",afterUnits=" + afterUnits
-                            + ",deltaUnits=" + deltaUnits + ",deltaMass=" + deltaMass);
+                    if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                        MSpellCompatDebug.log("sable_mass", "cell_mass_delta", "key=" + key + ",cell=" + localCell
+                                + ",plotPos=" + plotPos + ",beforeUnits=" + beforeUnits + ",afterUnits=" + afterUnits
+                                + ",deltaUnits=" + deltaUnits + ",deltaMass=" + deltaMass);
+                    }
                 }
             } catch (Throwable applyFailure) {
 
@@ -211,12 +240,16 @@ public final class SableFluidMassIntegration {
                                 delta.plotPos(), -delta.massDelta(), null);
                     } catch (Throwable rollbackFailure) {
                         applyFailure.addSuppressed(rollbackFailure);
-                        MSpellCompatDebug.error("sable_mass", "mass_delta_rollback_failed", rollbackFailure,
-                                "key=" + key + ",plotPos=" + delta.plotPos() + ",massDelta=" + delta.massDelta());
+                        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                            MSpellCompatDebug.error("sable_mass", "mass_delta_rollback_failed", rollbackFailure,
+                                    "key=" + key + ",plotPos=" + delta.plotPos() + ",massDelta=" + delta.massDelta());
+                        }
                     }
                 }
-                MSpellCompatDebug.error("sable_mass", "mass_delta_apply_failed", applyFailure,
-                        "key=" + key + ",appliedDeltas=" + applied.size() + ",currentWaterUnits=" + currentTotalUnits);
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.error("sable_mass", "mass_delta_apply_failed", applyFailure,
+                            "key=" + key + ",appliedDeltas=" + applied.size() + ",currentWaterUnits=" + currentTotalUnits);
+                }
                 return;
             }
 
@@ -228,7 +261,9 @@ public final class SableFluidMassIntegration {
                     + ",massAfter=" + readMassForLog(selfMassTracker));
 
         } catch (Throwable failure) {
-            MSpellCompatDebug.error("sable_mass", "sublevel_failed", failure, "key=" + key + ",gameTime=" + gameTime);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.error("sable_mass", "sublevel_failed", failure, "key=" + key + ",gameTime=" + gameTime);
+            }
         }
     }
 
@@ -262,19 +297,25 @@ public final class SableFluidMassIntegration {
                                 delta.plotPos(), -delta.massDelta(), null);
                     } catch (Throwable rollbackFailure) {
                         applyFailure.addSuppressed(rollbackFailure);
-                        MSpellCompatDebug.error("sable_mass", "remove_mass_rollback_failed", rollbackFailure,
-                                "key=" + key + ",plotPos=" + delta.plotPos() + ",massDelta=" + delta.massDelta());
+                        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                            MSpellCompatDebug.error("sable_mass", "remove_mass_rollback_failed", rollbackFailure,
+                                    "key=" + key + ",plotPos=" + delta.plotPos() + ",massDelta=" + delta.massDelta());
+                        }
                     }
                 }
                 throw applyFailure;
             }
             state.waterUnits.clear();
             state.totalWaterUnits = 0;
-            MSpellCompatDebug.log("sable_mass", "previous_mass_removed", "key=" + key
-                    + ",removedUnits=" + (int) Math.round(trackedWaterMass * 8.0)
-                    + ",removedMass=" + trackedWaterMass);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("sable_mass", "previous_mass_removed", "key=" + key
+                        + ",removedUnits=" + (int) Math.round(trackedWaterMass * 8.0)
+                        + ",removedMass=" + trackedWaterMass);
+            }
         } catch (Throwable failure) {
-            MSpellCompatDebug.error("sable_mass", "remove_previous_mass_failed", failure, "key=" + key);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.error("sable_mass", "remove_previous_mass_failed", failure, "key=" + key);
+            }
         }
     }
 
@@ -355,9 +396,27 @@ public final class SableFluidMassIntegration {
         }
     }
 
+    private static Method getContainerMethod() throws ReflectiveOperationException {
+        Method cached = GET_CONTAINER_METHOD;
+        if (cached != null) return cached;
+        Class<?> containerClass = Class.forName(SABLE_CONTAINER_CLASS, true,
+                SableFluidMassIntegration.class.getClassLoader());
+        Method resolved = containerClass.getMethod("getContainer", ServerLevel.class);
+        GET_CONTAINER_METHOD = resolved;
+        return resolved;
+    }
+
     private static Object invoke(Object target, String methodName) throws ReflectiveOperationException {
         if (target == null) throw new ReflectiveOperationException("null target for " + methodName + "()");
-        return target.getClass().getMethod(methodName).invoke(target);
+        Class<?> owner = target.getClass();
+        NoArgMethodKey key = new NoArgMethodKey(owner, methodName);
+        Method method = NO_ARG_METHODS.get(key);
+        if (method == null) {
+            Method resolved = owner.getMethod(methodName);
+            Method previous = NO_ARG_METHODS.putIfAbsent(key, resolved);
+            method = previous == null ? resolved : previous;
+        }
+        return method.invoke(target);
     }
 
     private static int readInt(Object target, String methodName) throws ReflectiveOperationException {
@@ -376,9 +435,14 @@ public final class SableFluidMassIntegration {
         try {
             return Double.toString(readMass(target));
         } catch (ReflectiveOperationException failure) {
-            MSpellCompatDebug.error("sable_mass", "diagnostic_read_failed", failure, "method=getMass");
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.error("sable_mass", "diagnostic_read_failed", failure, "method=getMass");
+            }
             return "unavailable";
         }
+    }
+
+    private record NoArgMethodKey(Class<?> owner, String name) {
     }
 
     private record CellPos(int x, int y, int z) {

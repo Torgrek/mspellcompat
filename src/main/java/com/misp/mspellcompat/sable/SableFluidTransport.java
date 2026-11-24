@@ -18,6 +18,7 @@ import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
 import java.lang.reflect.Method;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -61,15 +62,23 @@ public final class SableFluidTransport {
     private static final int INLET_MAX_OCCLUSION_HEIGHT = 32;
     private static final int INLET_MAX_CONTAINMENT_DISTANCE = 16;
     private static final int INLET_MAX_FILL_HEIGHT = 32;
-    private static final int INLET_AMBIENT_BODY_DEPTH = 3;
+    private static final double INLET_MIN_UPRIGHTNESS = 0.5;
 
     private static final Map<ServerLevel, List<StorageBounds>> ACTIVE_PLOT_BOUNDS = new WeakHashMap<>();
     private static final int MAX_KNOWN_STORAGE_BOUNDS_PER_LEVEL = 512;
+    private static final Map<ServerLevel, Map<Long, Long>> RECENT_INLET_SOURCE_CELLS = new WeakHashMap<>();
+    private static final long INLET_SOURCE_TICK_GUARD_TICKS = 5L;
+    private static final int INLET_SOURCE_TICK_GUARD_RADIUS = 2;
+    private static final int MAX_RECENT_INLET_SOURCE_CELLS = 512;
     private static final Map<MinecraftServer, Integer> TICK_COUNTERS = new WeakHashMap<>();
     private static final Map<MinecraftServer, Boolean> INITIALIZED_SERVERS = new WeakHashMap<>();
 
     private static final Map<String, Map<Long, DetachedSurfaceMark>> RECENTLY_DETACHED_WORLD_CELLS = new ConcurrentHashMap<>();
     private static final long DETACHED_WORLD_CELL_COOLDOWN_TICKS = 20L;
+    private static final Map<ServerLevel, Map<Long, Long>> RECENT_IMPACT_SPLASH_CELLS = new WeakHashMap<>();
+    private static final long IMPACT_SPLASH_INTAKE_COOLDOWN_TICKS = 40L;
+    private static final int IMPACT_SPLASH_INTAKE_RADIUS = 2;
+    private static final int MAX_UNSUPPORTED_COLUMN_DEPTH = 64;
     private static int roundRobinStart;
     private static volatile ApiAccess cachedApi;
     private static final Map<Class<?>, Method> POSE_TRANSFORM_METHODS = new ConcurrentHashMap<>();
@@ -87,7 +96,9 @@ public final class SableFluidTransport {
     private static void trace(String event, String details) {
         if (MSpellCompatDebug.isDebugLoggingDisabled()) return;
         int index = TRACE_EVENT_COUNT.incrementAndGet();
-        MSpellCompatDebug.log("sable_transport", event + " #" + index, details);
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.log("sable_transport", event + " #" + index, details);
+        }
     }
 
     private static String fluidId(Fluid fluid) {
@@ -212,6 +223,61 @@ public final class SableFluidTransport {
         }
     }
 
+    private static void markRecentInletSourceCell(ServerLevel world, BlockPos pos) {
+        long now = world.getGameTime();
+        synchronized (RECENT_INLET_SOURCE_CELLS) {
+            Map<Long, Long> marks = RECENT_INLET_SOURCE_CELLS.computeIfAbsent(world, ignored -> new HashMap<>());
+            marks.entrySet().removeIf(entry -> {
+                long age = now - entry.getValue();
+                return age < 0L || age > INLET_SOURCE_TICK_GUARD_TICKS;
+            });
+            marks.put(pos.asLong(), now);
+            while (marks.size() > MAX_RECENT_INLET_SOURCE_CELLS) {
+                Long oldestPosition = null;
+                long oldestTick = Long.MAX_VALUE;
+                for (Map.Entry<Long, Long> entry : marks.entrySet()) {
+                    if (entry.getValue() < oldestTick) {
+                        oldestTick = entry.getValue();
+                        oldestPosition = entry.getKey();
+                    }
+                }
+                if (oldestPosition == null) break;
+                marks.remove(oldestPosition);
+            }
+        }
+    }
+
+    private static boolean isRecentInletSourceNeighborhood(ServerLevel world, BlockPos pos) {
+        long now = world.getGameTime();
+        synchronized (RECENT_INLET_SOURCE_CELLS) {
+            Map<Long, Long> marks = RECENT_INLET_SOURCE_CELLS.get(world);
+            if (marks == null || marks.isEmpty()) return false;
+            marks.entrySet().removeIf(entry -> {
+                long age = now - entry.getValue();
+                return age < 0L || age > INLET_SOURCE_TICK_GUARD_TICKS;
+            });
+            // Keep the vertical feed column above an accepted inlet flowing, even if another inlet is nearby.
+            for (int dy = 1; dy <= INLET_SOURCE_TICK_GUARD_RADIUS; dy++) {
+                Long feedMark = marks.get(pos.offset(0, -dy, 0).asLong());
+                if (feedMark != null && now >= feedMark
+                        && now - feedMark <= INLET_SOURCE_TICK_GUARD_TICKS) return false;
+            }
+            for (int dx = -INLET_SOURCE_TICK_GUARD_RADIUS; dx <= INLET_SOURCE_TICK_GUARD_RADIUS; dx++) {
+                for (int dy = -INLET_SOURCE_TICK_GUARD_RADIUS; dy <= INLET_SOURCE_TICK_GUARD_RADIUS; dy++) {
+                    for (int dz = -INLET_SOURCE_TICK_GUARD_RADIUS; dz <= INLET_SOURCE_TICK_GUARD_RADIUS; dz++) {
+                        // Keep the vertical feed above the inlet flowing; guard its sides and the path below.
+                        if (dx == 0 && dz == 0 && dy < 0) continue;
+                        Long markedAt = marks.get(pos.offset(dx, dy, dz).asLong());
+                        if (markedAt != null && now >= markedAt
+                                && now - markedAt <= INLET_SOURCE_TICK_GUARD_TICKS) return true;
+                    }
+                }
+            }
+            if (marks.isEmpty()) RECENT_INLET_SOURCE_CELLS.remove(world);
+            return false;
+        }
+    }
+
     private static boolean nearKnownPlotStorage(Level level, BlockPos pos) {
         if (!(level instanceof ServerLevel serverLevel)) return false;
         synchronized (ACTIVE_PLOT_BOUNDS) {
@@ -231,9 +297,11 @@ public final class SableFluidTransport {
         boolean nearPlot = nearKnownPlotStorage(level, pos);
         boolean nearby = suppressed || nearWorldTracePosition(level, pos) || nearPlot;
         if (!nearby) return;
-        trace("FLUID_TICK", "kind=" + tickKind + ",suppressed=" + suppressed
-                + ",nearPlot=" + nearPlot + ",gameTime=" + level.getGameTime()
-                + "," + cellDescription(level, pos));
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            trace("FLUID_TICK", "kind=" + tickKind + ",suppressed=" + suppressed
+                    + ",nearPlot=" + nearPlot + ",gameTime=" + level.getGameTime()
+                    + "," + cellDescription(level, pos));
+        }
         if (!suppressed && !nearPlot) markWorldTracePosition(level, pos);
     }
 
@@ -308,13 +376,23 @@ public final class SableFluidTransport {
             return false;
         }
 
+        if (isRecentInletSourceNeighborhood(serverLevel, pos)) {
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("FLUID_TICK_SUPPRESS", "kind=" + tickKind + ",reason=recent-inlet-transfer"
+                        + "," + cellDescription(level, pos));
+            }
+            return true;
+        }
+
         synchronized (ACTIVE_PLOT_BOUNDS) {
             List<StorageBounds> boundsList = ACTIVE_PLOT_BOUNDS.get(serverLevel);
             if (boundsList != null) {
                 for (StorageBounds bounds : boundsList) {
                     if (bounds.contains(pos)) {
-                        trace("FLUID_TICK_SUPPRESS", "kind=" + tickKind + ",reason=known-sable-storage"
-                                + "," + cellDescription(level, pos) + ",bounds=" + bounds);
+                        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                            trace("FLUID_TICK_SUPPRESS", "kind=" + tickKind + ",reason=known-sable-storage"
+                                    + "," + cellDescription(level, pos) + ",bounds=" + bounds);
+                        }
                         return true;
                     }
                 }
@@ -340,11 +418,16 @@ public final class SableFluidTransport {
         synchronized (ACTIVE_PLOT_BOUNDS) {
             ACTIVE_PLOT_BOUNDS.clear();
         }
+        synchronized (RECENT_INLET_SOURCE_CELLS) {
+            RECENT_INLET_SOURCE_CELLS.clear();
+        }
         CACHED_LOCAL_GRIDS.clear();
     }
 
     private static void runTransportPass(MinecraftServer server, ApiAccess api) {
-        trace("PASS_START", "begin");
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            trace("PASS_START", "begin");
+        }
         List<SublevelTask> tasks = new ArrayList<>();
         Map<ServerLevel, List<StorageBounds>> nextBounds = new WeakHashMap<>();
         try {
@@ -365,11 +448,18 @@ public final class SableFluidTransport {
                 }
 
                 for (Object sublevel : sublevels) {
+                    if (!SableSublevelActivity.hasNearbyPlayer(level, sublevel)) {
+                        StorageBounds observed = readStorageBounds(sublevel);
+                        if (observed != null) {
+                            nextBounds.get(level).add(observed.inflate(2));
+                        }
+                        continue;
+                    }
+
                     SublevelTask task = createTask(level, sublevel);
                     if (task != null) {
                         tasks.add(task);
                     } else {
-
                         StorageBounds observed = readStorageBounds(sublevel);
                         if (observed != null) {
                             nextBounds.get(level).add(observed.inflate(2));
@@ -378,19 +468,27 @@ public final class SableFluidTransport {
                 }
             }
         } catch (Throwable throwable) {
-            trace("PASS_ERROR", "phase=enumerate,error=" + throwable.getClass().getName()
-                    + ",message=" + throwable.getMessage());
-            MSpellCompatDebug.error("sable_transport", "pass_enumeration_failed", throwable,
-                    "server=" + server + ",phase=enumerate");
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("PASS_ERROR", "phase=enumerate,error=" + throwable.getClass().getName()
+                        + ",message=" + throwable.getMessage());
+            }
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.error("sable_transport", "pass_enumeration_failed", throwable,
+                        "server=" + server + ",phase=enumerate");
+            }
 
             return;
         }
 
-        trace("PASS_TASKS", "sublevels=" + tasks.size());
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            trace("PASS_TASKS", "sublevels=" + tasks.size());
+        }
         if (tasks.isEmpty()) {
 
             mergeKnownStorageBounds(nextBounds);
-            trace("PASS_END", "result=no-ready-sublevels");
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("PASS_END", "result=no-ready-sublevels");
+            }
             return;
         }
 
@@ -408,9 +506,11 @@ public final class SableFluidTransport {
         for (int i = 0; i < tasks.size(); i++) {
             SublevelTask task = tasks.get((start + i) % tasks.size());
             if (task.volume() > perSublevelCap || usedCells + task.volume() > cellBudget) {
-                trace("SUBLEVEL_BUDGET_SKIP", "id=" + task.id() + ",volume=" + task.volume()
-                        + ",usedCells=" + usedCells + ",passBudget=" + cellBudget
-                        + ",sublevelCap=" + perSublevelCap);
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    trace("SUBLEVEL_BUDGET_SKIP", "id=" + task.id() + ",volume=" + task.volume()
+                            + ",usedCells=" + usedCells + ",passBudget=" + cellBudget
+                            + ",sublevelCap=" + perSublevelCap);
+                }
                 continue;
             }
 
@@ -418,17 +518,23 @@ public final class SableFluidTransport {
             try {
                 processSublevel(task, api);
             } catch (Throwable throwable) {
-                trace("SUBLEVEL_ERROR", "id=" + task.id() + ",error=" + throwable.getClass().getName()
-                        + ",message=" + throwable.getMessage());
-                MSpellCompatDebug.error("sable_transport", "sublevel_processing_failed", throwable,
-                        "sublevel=" + task.id() + ",bounds=" + task.storageBounds());
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    trace("SUBLEVEL_ERROR", "id=" + task.id() + ",error=" + throwable.getClass().getName()
+                            + ",message=" + throwable.getMessage());
+                }
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.error("sable_transport", "sublevel_processing_failed", throwable,
+                            "sublevel=" + task.id() + ",bounds=" + task.storageBounds());
+                }
 
             }
         }
 
         roundRobinStart = (start + 1) % Math.max(1, tasks.size());
         mergeKnownStorageBounds(nextBounds);
-        trace("PASS_END", "processedSublevels=" + tasks.size() + ",cellsScannedBudget=" + usedCells);
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            trace("PASS_END", "processedSublevels=" + tasks.size() + ",cellsScannedBudget=" + usedCells);
+        }
     }
 
     private static StorageBounds readStorageBounds(Object sublevel) {
@@ -444,8 +550,10 @@ public final class SableFluidTransport {
             if (minX > maxX || minY > maxY || minZ > maxZ) return null;
             return new StorageBounds(minX, minY, minZ, maxX, maxY, maxZ);
         } catch (Throwable failure) {
-            MSpellCompatDebug.error("sable_transport", "storage_bounds_read_failed", failure,
-                    "sublevel=" + sublevel);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.error("sable_transport", "storage_bounds_read_failed", failure,
+                        "sublevel=" + sublevel);
+            }
             return null;
         }
     }
@@ -519,8 +627,10 @@ public final class SableFluidTransport {
             return new SublevelTask(world, accessor, pose, id, center,
                     storage, local, (int) volumeLong, gravity);
         } catch (Throwable failure) {
-            MSpellCompatDebug.error("sable_transport", "sublevel_task_create_failed", failure,
-                    "world=" + world + ",sublevel=" + sublevel);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.error("sable_transport", "sublevel_task_create_failed", failure,
+                        "world=" + world + ",sublevel=" + sublevel);
+            }
             return null;
         }
     }
@@ -538,16 +648,21 @@ public final class SableFluidTransport {
 
     private static void processSublevel(SublevelTask task, ApiAccess api) {
         Map<CellPos, CellData> cells = readLocalCells(task, api);
+        Set<CellPos> detachedOrDeferred = detachUnsupportedFluidColumns(task, cells, api);
         LocalBounds hullBounds = deriveHullBounds(cells);
         if (hullBounds == null) {
-            trace("SUBLEVEL_SKIP", "id=" + task.id() + ",reason=no-hull,volume=" + task.volume());
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("SUBLEVEL_SKIP", "id=" + task.id() + ",reason=no-hull,volume=" + task.volume());
+            }
             CACHED_LOCAL_GRIDS.remove(surfaceCacheKey(task));
             return;
         }
-        trace("SUBLEVEL_BEGIN", "id=" + task.id() + ",center=" + task.center()
-                + ",volume=" + task.volume() + ",localBounds=" + task.localBounds()
-                + ",storageBounds=" + task.storageBounds() + ",gravityDown=" + task.gravityDown()
-                + "," + summarizeFluids(cells) + "," + summarizeFluidContacts(cells));
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            trace("SUBLEVEL_BEGIN", "id=" + task.id() + ",center=" + task.center()
+                    + ",volume=" + task.volume() + ",localBounds=" + task.localBounds()
+                    + ",storageBounds=" + task.storageBounds() + ",gravityDown=" + task.gravityDown()
+                    + "," + summarizeFluids(cells) + "," + summarizeFluidContacts(cells));
+        }
 
         LocalGridCache grid = buildLocalGridCache(task, cells);
         CACHED_LOCAL_GRIDS.put(surfaceCacheKey(task), grid);
@@ -572,8 +687,8 @@ public final class SableFluidTransport {
         fluidCells.clear();
         for (Map.Entry<CellPos, CellData> entry : cells.entrySet()) {
             CellData data = entry.getValue();
-            if (data.liquid() && data.amount() > 0) {
-
+            if (data.liquid() && data.amount() > 0
+                    && !detachedOrDeferred.contains(entry.getKey())) {
                 fluidCells.add(entry.getKey());
             }
         }
@@ -605,7 +720,8 @@ public final class SableFluidTransport {
 
                     for (WorldCellCandidate candidate : worldCellsForLocalTransition(task, sourcePos, targetPos)) {
                         CellData external = readCell(task.world(), candidate.worldPos(), api);
-                        if (!canReceiveFromSource(external, source.fluidType(), api)) continue;
+                        if (!canReceiveFromSource(external, source.fluidType(), api)
+                                || !isExternalWorldTarget(task, candidate.worldPos())) continue;
                         worldTarget = candidate.worldPos();
                         targetAmount = external.liquid() ? external.amount() : 0;
                         break;
@@ -670,8 +786,10 @@ public final class SableFluidTransport {
             }
         }
 
-        trace("SUBLEVEL_END", "id=" + task.id() + ",transfers=" + transfers
-                + "," + summarizeFluids(cells) + "," + summarizeFluidContacts(cells));
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            trace("SUBLEVEL_END", "id=" + task.id() + ",transfers=" + transfers
+                    + "," + summarizeFluids(cells) + "," + summarizeFluidContacts(cells));
+        }
     }
 
     private static int flowPriority(double slope, int sourceAmount, int targetAmount) {
@@ -712,6 +830,7 @@ public final class SableFluidTransport {
                     if (currentBounds != null) {
                         observedBounds.get(level).add(currentBounds.inflate(2));
                     }
+                    if (!SableSublevelActivity.hasNearbyPlayer(level, sublevel)) continue;
                     String id = String.valueOf(invoke(sublevel, "getUniqueId"));
                     String key = level.dimension().location() + "|" + id;
                     activeKeys.add(key);
@@ -734,20 +853,26 @@ public final class SableFluidTransport {
                                 grid.storageBounds(), grid.localBounds(), grid.volume(), gravity);
                     }
 
-                    int maxTransfers = SableFluidRuntimeConfig.MAX_TRANSFERS_PER_SUBLEVEL.get();
+                    if (-task.gravityDown().y < INLET_MIN_UPRIGHTNESS) continue;
+                    boolean objectSubmerged = isSublevelSubmerged(level, sublevel, api);
+                    int maxTransfers = grid.inletCatchPoints().size();
                     processInletCatchPointIntake(task, grid, api,
-                            claimedExternal, maxTransfers);
+                            claimedExternal, maxTransfers, objectSubmerged);
                 }
             }
         } catch (Throwable failure) {
-            MSpellCompatDebug.error("sable_transport", "boundary_input_scan_failed", failure,
-                    "server=" + server);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.error("sable_transport", "boundary_input_scan_failed", failure,
+                        "server=" + server);
+            }
         }
 
         mergeKnownStorageBounds(observedBounds);
         CACHED_LOCAL_GRIDS.keySet().removeIf(key -> !activeKeys.contains(key));
-        trace("BOUNDARY_INPUT_PASS_END", "activeSublevels=" + activeKeys.size()
-                + ",levels=" + observedBounds.size() + ",cachedGrids=" + CACHED_LOCAL_GRIDS.size());
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            trace("BOUNDARY_INPUT_PASS_END", "activeSublevels=" + activeKeys.size()
+                    + ",levels=" + observedBounds.size() + ",cachedGrids=" + CACHED_LOCAL_GRIDS.size());
+        }
     }
 
     private static Map<CellPos, CellData> readLocalCells(SublevelTask task, ApiAccess api) {
@@ -767,13 +892,16 @@ public final class SableFluidTransport {
 
     private static LocalGridCache buildLocalGridCache(
             SublevelTask task, Map<CellPos, CellData> cells) {
-        List<InletCatchPoint> inletCatchPoints = findInletCatchPoints(task, cells);
+        Set<CellPos> horizontallyContainedCells = findHorizontallyContainedCells(task.localBounds(), cells);
+        List<InletCatchPoint> inletCatchPoints =
+                findInletCatchPoints(task, cells, horizontallyContainedCells);
         return new LocalGridCache(List.copyOf(inletCatchPoints), task.accessor(), task.center(),
-                task.storageBounds(), task.localBounds(), task.volume());
+                task.storageBounds(), task.localBounds(), task.volume(),
+                Set.copyOf(horizontallyContainedCells));
     }
 
     private static List<InletCatchPoint> findInletCatchPoints(
-            SublevelTask task, Map<CellPos, CellData> cells) {
+            SublevelTask task, Map<CellPos, CellData> cells, Set<CellPos> horizontallyContainedCells) {
         List<CellPos> solidDecks = new ArrayList<>();
         for (Map.Entry<CellPos, CellData> entry : cells.entrySet()) {
             CellData data = entry.getValue();
@@ -786,14 +914,62 @@ public final class SableFluidTransport {
         List<InletCatchPoint> result = new ArrayList<>();
         for (CellPos deck : solidDecks) {
             CellPos above = deck.offset(LOCAL_UP);
-            if (!hasOpenPathAbove(task.localBounds(), cells, above)) {
-                continue;
-            }
-            boolean contained = isHorizontallyContained(task.localBounds(), cells, above);
-            result.add(new InletCatchPoint(deck, contained));
+            if (!hasOpenPathAbove(task.localBounds(), cells, above)) continue;
+            // Accept an inlet only when the air/fluid cell belongs to a horizontal
+            // component fully separated from the outside by solid blocks at this height.
+            // Ray checks could mistake the exterior side of a wall for an enclosed tank.
+            if (!horizontallyContainedCells.contains(above)) continue;
+            result.add(new InletCatchPoint(deck, true));
             if (result.size() >= INLET_MAX_CATCH_POINTS) break;
         }
         return List.copyOf(result);
+    }
+
+    private static Set<CellPos> findHorizontallyContainedCells(
+            LocalBounds bounds, Map<CellPos, CellData> cells) {
+        Set<CellPos> visited = new HashSet<>();
+        Set<CellPos> contained = new HashSet<>();
+        ArrayDeque<CellPos> queue = new ArrayDeque<>();
+        List<CellPos> component = new ArrayList<>();
+
+        // Horizontal connectivity is classified separately at each Y level. The open
+        // top of a tank therefore remains usable, while air outside the side walls is
+        // rejected because its component reaches the storage bounds' X/Z edge.
+        for (int y = bounds.minY(); y <= bounds.maxY(); y++) {
+            for (int z = bounds.minZ(); z <= bounds.maxZ(); z++) {
+                for (int x = bounds.minX(); x <= bounds.maxX(); x++) {
+                    CellPos start = new CellPos(x, y, z);
+                    if (visited.contains(start) || !isPassable(cells.get(start))) continue;
+
+                    queue.clear();
+                    component.clear();
+                    queue.addLast(start);
+                    visited.add(start);
+                    boolean touchesOuterEdge = false;
+
+                    while (!queue.isEmpty()) {
+                        CellPos current = queue.removeFirst();
+                        component.add(current);
+                        if (current.x() == bounds.minX() || current.x() == bounds.maxX()
+                                || current.z() == bounds.minZ() || current.z() == bounds.maxZ()) {
+                            touchesOuterEdge = true;
+                        }
+
+                        for (DirectionOffset direction : HORIZONTAL_DIRECTIONS) {
+                            CellPos next = current.offset(direction);
+                            if (next.x() < bounds.minX() || next.x() > bounds.maxX()
+                                    || next.z() < bounds.minZ() || next.z() > bounds.maxZ()) continue;
+                            if (visited.contains(next) || !isPassable(cells.get(next))) continue;
+                            visited.add(next);
+                            queue.addLast(next);
+                        }
+                    }
+
+                    if (!touchesOuterEdge) contained.addAll(component);
+                }
+            }
+        }
+        return contained;
     }
 
     private static boolean hasOpenPathAbove(LocalBounds bounds, Map<CellPos, CellData> cells,
@@ -810,29 +986,9 @@ public final class SableFluidTransport {
         return true;
     }
 
-    private static boolean isHorizontallyContained(LocalBounds bounds, Map<CellPos, CellData> cells,
-                                                    CellPos start) {
-        for (DirectionOffset direction : HORIZONTAL_DIRECTIONS) {
-            boolean wallFound = false;
-            CellPos cursor = start;
-            for (int distance = 0; distance < INLET_MAX_CONTAINMENT_DISTANCE; distance++) {
-                cursor = cursor.offset(direction);
-                if (!bounds.contains(cursor)) break;
-                CellData data = cells.get(cursor);
-                if (data == null) break;
-                if (!data.blockState().isAir() && data.fluidState().isEmpty()) {
-                    wallFound = true;
-                    break;
-                }
-            }
-            if (!wallFound) return false;
-        }
-        return true;
-    }
-
     private static void processInletCatchPointIntake(
             SublevelTask task, LocalGridCache grid, ApiAccess api,
-            Set<Long> claimedExternal, int maxTransfers) {
+            Set<Long> claimedExternal, int maxTransfers, boolean objectSubmerged) {
         if (maxTransfers <= 0 || grid.inletCatchPoints().isEmpty()) return;
 
         List<InletCatchPoint> ordered = new ArrayList<>(grid.inletCatchPoints());
@@ -848,32 +1004,30 @@ public final class SableFluidTransport {
             if (movedThisSublevel >= maxTransfers) break;
 
             boolean cavityCatchPoint = catchPoint.horizontallyContained();
+            if (!cavityCatchPoint) continue;
             CellPos firstFillCell = catchPoint.localDeck().offset(LOCAL_UP);
             if (!task.localBounds().contains(firstFillCell)) continue;
 
-            CellPos fillTarget = findInletFillTarget(task, api, catchPoint.localDeck(),
-                    cavityCatchPoint);
+            CellPos fillTarget = findInletFillTarget(task, api, grid.horizontallyContainedCells(),
+                    catchPoint.localDeck(), objectSubmerged);
             if (fillTarget == null || lockedTargets.contains(fillTarget)
                     || !task.localBounds().contains(fillTarget)
-                    || (!cavityCatchPoint && task.localBounds().isBoundary(fillTarget))) continue;
+                    || !grid.horizontallyContainedCells().contains(fillTarget)
+                    || (!objectSubmerged && task.localBounds().isBoundary(fillTarget))) continue;
 
-            Vec3 worldCenter = transformedCellCenter(task, fillTarget);
+            CellPos externalCatchCell = catchPoint.localDeck().offset(LOCAL_UP);
+            Vec3 worldCenter = transformedCellCenter(task, externalCatchCell);
             if (worldCenter == null) continue;
             BlockPos sourcePos = BlockPos.containing(worldCenter.x, worldCenter.y, worldCenter.z);
             if (!task.world().isLoaded(sourcePos) || claimedExternal.contains(sourcePos.asLong())
-                    || isRecentlyDetachedEcho(task, sourcePos)) continue;
+                    || isRecentlyDetachedEcho(task, sourcePos)
+                    || isRecentImpactSplash(task.world(), sourcePos)) continue;
 
             CellData external = readCell(task.world(), sourcePos, api);
             if (!external.liquid() || external.amount() <= 0
                     || !isSupportedFluid(external.fluidType(), api)
                     || !isInletColumnCompatible(task, api, catchPoint.localDeck(), fillTarget,
                             external.fluidType())) continue;
-            if (!cavityCatchPoint) {
-                FluidState aboveSource = task.world().getFluidState(sourcePos.above());
-                if (!aboveSource.isEmpty()) continue;
-                if (isPartOfDeepFluidBody(task.world(), api, sourcePos, external.fluidType())) continue;
-            }
-
             CellData currentExternal = readCell(task.world(), sourcePos, api);
             if (!currentExternal.liquid() || currentExternal.amount() <= 0
                     || !isSupportedFluid(currentExternal.fluidType(), api)
@@ -882,14 +1036,16 @@ public final class SableFluidTransport {
             int sourceUnitsBefore = currentExternal.amount();
             int totalMoved = 0;
             CellPos layerTarget = fillTarget;
-            int maxLayers = cavityCatchPoint ? INLET_MAX_FILL_HEIGHT : 1;
+            int maxLayers = objectSubmerged ? INLET_MAX_FILL_HEIGHT : 1;
             for (int layer = 0; layer < maxLayers && totalMoved < sourceUnitsBefore; layer++) {
                 if (layer > 0) {
-                    layerTarget = findInletFillTarget(task, api, catchPoint.localDeck(), true);
+                    layerTarget = findInletFillTarget(task, api, grid.horizontallyContainedCells(),
+                            catchPoint.localDeck(), objectSubmerged);
                 }
                 if (layerTarget == null || lockedTargets.contains(layerTarget)
                         || !task.localBounds().contains(layerTarget)
-                        || (!cavityCatchPoint && task.localBounds().isBoundary(layerTarget))) break;
+                        || !grid.horizontallyContainedCells().contains(layerTarget)
+                        || (!objectSubmerged && task.localBounds().isBoundary(layerTarget))) break;
 
                 CellData localTarget = readCell(task.accessor(), toBlockPos(layerTarget), api);
                 if ((!localTarget.air()
@@ -930,26 +1086,55 @@ public final class SableFluidTransport {
         return false;
     }
 
-    private static boolean isPartOfDeepFluidBody(ServerLevel world, ApiAccess api,
-                                                       BlockPos sourcePos, Fluid expectedFluid) {
-        BlockPos.MutableBlockPos cursor = sourcePos.mutable();
-        for (int i = 0; i < INLET_AMBIENT_BODY_DEPTH; i++) {
-            if (!world.isLoaded(cursor)) return false;
-            FluidState fluid = world.getFluidState(cursor);
-            if (fluid.isEmpty() || !isSupportedFluid(fluid.getType(), api)
-                    || !sameFluidFamily(expectedFluid, fluid.getType())) return false;
-            cursor.move(net.minecraft.core.Direction.DOWN);
+    private static boolean isSublevelSubmerged(ServerLevel world, Object sublevel, ApiAccess api) {
+        try {
+            Object rawBounds = invoke(sublevel, "boundingBox");
+            double minX = readDouble(rawBounds, "minX");
+            double minY = readDouble(rawBounds, "minY");
+            double minZ = readDouble(rawBounds, "minZ");
+            double maxX = readDouble(rawBounds, "maxX");
+            double maxY = readDouble(rawBounds, "maxY");
+            double maxZ = readDouble(rawBounds, "maxZ");
+            double midX = (minX + maxX) * 0.5;
+            double midY = (minY + maxY) * 0.5;
+            double midZ = (minZ + maxZ) * 0.5;
+            double outside = 0.1;
+            double[][] samples = {
+                    {midX, maxY + outside, midZ},
+                    {minX - outside, midY, midZ},
+                    {maxX + outside, midY, midZ},
+                    {midX, midY, minZ - outside},
+                    {midX, midY, maxZ + outside}
+            };
+            int availableSamples = 0;
+            int wetSamples = 0;
+            for (double[] sample : samples) {
+                BlockPos pos = BlockPos.containing(sample[0], sample[1], sample[2]);
+                if (pos.getY() < world.getMinBuildHeight() || pos.getY() >= world.getMaxBuildHeight()
+                        || !world.isLoaded(pos)) continue;
+                availableSamples++;
+                FluidState state = world.getFluidState(pos);
+                if (!state.isEmpty() && api.isManagedFluid(state.getType())) wetSamples++;
+            }
+            // A single stream touching the top or one side is pouring, not submergence.
+            return availableSamples >= 4 && wetSamples >= 4;
+        } catch (Throwable failure) {
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.error("sable_transport", "submerged_state_read_failed", failure,
+                        "sublevel=" + sublevel);
+            }
         }
-        return true;
+        return false;
     }
 
     private static CellPos findInletFillTarget(SublevelTask task, ApiAccess api,
-                                                     CellPos localDeck, boolean requireContainedColumn) {
+                                                     Set<CellPos> horizontallyContainedCells,
+                                                     CellPos localDeck, boolean objectSubmerged) {
         CellPos cursor = localDeck.offset(LOCAL_UP);
         for (int i = 0; i < INLET_MAX_FILL_HEIGHT; i++) {
             if (!task.localBounds().contains(cursor)
-                    || (!requireContainedColumn && task.localBounds().isBoundary(cursor))) return null;
-            if (requireContainedColumn && !isHorizontallyContained(task, api, cursor)) return null;
+                    || (!objectSubmerged && task.localBounds().isBoundary(cursor))
+                    || !horizontallyContainedCells.contains(cursor)) return null;
 
             CellData current = readCell(task.accessor(), toBlockPos(cursor), api);
             if (current.fluidState().isEmpty()) {
@@ -1115,6 +1300,183 @@ public final class SableFluidTransport {
         return match != null;
     }
 
+    private static Set<CellPos> detachUnsupportedFluidColumns(
+            SublevelTask task, Map<CellPos, CellData> cells, ApiAccess api) {
+        DirectionOffset localDown = localDownOffset(task.gravityDown());
+        DirectionOffset localUp = new DirectionOffset(-localDown.dx(), -localDown.dy(), -localDown.dz());
+        Set<CellPos> visited = new HashSet<>();
+        Set<CellPos> detachedOrDeferred = new HashSet<>();
+        List<CellPos> fluidCells = new ArrayList<>();
+        for (Map.Entry<CellPos, CellData> entry : cells.entrySet()) {
+            CellData data = entry.getValue();
+            if (data != null && data.liquid() && data.amount() > 0) fluidCells.add(entry.getKey());
+        }
+        fluidCells.sort(Comparator
+                .comparingDouble((CellPos pos) -> gravityProjection(task.gravityDown(), pos))
+                .thenComparingInt(CellPos::y).thenComparingInt(CellPos::z).thenComparingInt(CellPos::x));
+
+        for (CellPos start : fluidCells) {
+            if (visited.contains(start)) continue;
+            CellData startData = cells.get(start);
+            if (startData == null || !startData.liquid() || startData.fluidType() == null) continue;
+
+            CellData above = cells.get(start.offset(localUp));
+            if (above != null && above.liquid()
+                    && sameFluidFamily(startData.fluidType(), above.fluidType())) continue;
+
+            List<CellPos> run = new ArrayList<>();
+            CellPos cursor = start;
+            boolean exitedLocalBounds = false;
+            boolean stoppedInsideBounds = false;
+            for (int depth = 0; depth < MAX_UNSUPPORTED_COLUMN_DEPTH; depth++) {
+                if (!task.localBounds().contains(cursor)) {
+                    exitedLocalBounds = true;
+                    break;
+                }
+                CellData current = cells.get(cursor);
+                if (current == null) {
+                    stoppedInsideBounds = true;
+                    break;
+                }
+                if (!current.liquid() || current.fluidType() == null
+                        || !sameFluidFamily(startData.fluidType(), current.fluidType())) {
+                    // Air, a wall, or a different fluid inside the plot is a normal local
+                    // destination/blocker. Only an actual exit from local bounds may detach.
+                    stoppedInsideBounds = true;
+                    break;
+                }
+                run.add(cursor);
+                cursor = cursor.offset(localDown);
+            }
+            if (run.isEmpty()) continue;
+            visited.addAll(run);
+
+            // Never detach a whole liquid column just because its next local cell is air.
+            // Let the ordinary local solver move it through the interior. At a real boundary,
+            // only the terminal cell is released to the first valid external cell.
+            if (!exitedLocalBounds || stoppedInsideBounds) continue;
+
+            CellPos boundaryCell = run.get(run.size() - 1);
+            BlockPos localSource = toBlockPos(boundaryCell);
+            CellData liveSource = readCell(task.accessor(), localSource, api);
+            if (!liveSource.liquid() || liveSource.amount() <= 0 || liveSource.fluidType() == null) {
+                cells.put(boundaryCell, liveSource);
+                continue;
+            }
+
+            boolean released = false;
+            for (WorldCellCandidate candidate : worldCellsForLocalTransition(task, boundaryCell, cursor)) {
+                BlockPos worldTarget = candidate.worldPos();
+                if (!task.world().isLoaded(worldTarget)
+                        || worldTarget.getY() < task.world().getMinBuildHeight()
+                        || worldTarget.getY() >= task.world().getMaxBuildHeight()
+                        || !isExternalWorldTarget(task, worldTarget)) continue;
+
+                CellData external = readCell(task.world(), worldTarget, api);
+                if (!canReceiveFromSource(external, liveSource.fluidType(), api)) continue;
+
+                int moved = moveUnits(task.accessor(), localSource,
+                        task.world(), worldTarget, liveSource.fluidType(), liveSource.amount(),
+                        api, true, false);
+                if (moved <= 0) continue;
+
+                markRecentlyDetachedSurfaceCell(task, worldTarget);
+                cells.put(boundaryCell, readCell(task.accessor(), localSource, api));
+                released = true;
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    trace("UNSUPPORTED_FLUID_COLUMN", "sublevel=" + task.id()
+                            + ",cells=" + run.size() + ",releasedCell=" + boundaryCell
+                            + ",target=" + worldTarget + ",units=" + moved
+                            + ",localDown=" + localDown);
+                }
+                break;
+            }
+
+            if (!released && MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("FLUID_BOUNDARY_RELEASE_DEFERRED", "sublevel=" + task.id()
+                        + ",boundaryCell=" + boundaryCell + ",outlet=" + cursor
+                        + ",reason=no-safe-external-cell,localDown=" + localDown);
+            }
+        }
+        return detachedOrDeferred;
+    }
+
+    private static boolean isExternalWorldTarget(SublevelTask task, BlockPos worldPos) {
+        Vec3 local = inverseTransformedLocalPosition(task, new Vec3(
+                worldPos.getX() + 0.5, worldPos.getY() + 0.5, worldPos.getZ() + 0.5));
+        CellPos mapped = localCellFromPosition(local);
+        if (mapped == null || task.localBounds().contains(mapped)) return false;
+        return !overlapsSolidLocalCell(task, worldPos);
+    }
+
+    private static boolean overlapsSolidLocalCell(SublevelTask task, BlockPos worldPos) {
+        final double[] sampleOffsets = {0.2, 0.5, 0.8};
+        for (double sx : sampleOffsets) {
+            for (double sy : sampleOffsets) {
+                for (double sz : sampleOffsets) {
+                    Vec3 local = inverseTransformedLocalPosition(task, new Vec3(
+                            worldPos.getX() + sx, worldPos.getY() + sy, worldPos.getZ() + sz));
+                    if (local == null) return true;
+                    CellPos localCell = localCellFromPosition(local);
+                    if (localCell == null || !task.localBounds().contains(localCell)) continue;
+
+                    BlockPos localPos = toBlockPos(localCell);
+                    BlockState localState = task.accessor().getBlockState(localPos);
+                    if (localState.isAir()) continue;
+                    var shape = localState.getCollisionShape(task.accessor(), localPos);
+                    if (shape.isEmpty()) continue;
+
+                    double fracX = local.x - localCell.x();
+                    double fracY = local.y - localCell.y();
+                    double fracZ = local.z - localCell.z();
+                    for (var box : shape.toAabbs()) {
+                        if (box.contains(fracX, fracY, fracZ)) return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static DirectionOffset localDownOffset(Vec3 gravityDown) {
+        double x = Math.abs(gravityDown.x);
+        double y = Math.abs(gravityDown.y);
+        double z = Math.abs(gravityDown.z);
+        if (x > y && x > z) return new DirectionOffset(gravityDown.x >= 0.0 ? 1 : -1, 0, 0);
+        if (z > y) return new DirectionOffset(0, 0, gravityDown.z >= 0.0 ? 1 : -1);
+        return new DirectionOffset(0, gravityDown.y >= 0.0 ? 1 : -1, 0);
+    }
+
+    public static void markImpactSplash(ServerLevel world, BlockPos pos) {
+        if (world == null || pos == null) return;
+        synchronized (RECENT_IMPACT_SPLASH_CELLS) {
+            RECENT_IMPACT_SPLASH_CELLS
+                    .computeIfAbsent(world, ignored -> new HashMap<>())
+                    .put(pos.asLong(), world.getGameTime());
+        }
+    }
+
+    private static boolean isRecentImpactSplash(ServerLevel world, BlockPos sourcePos) {
+        long now = world.getGameTime();
+        synchronized (RECENT_IMPACT_SPLASH_CELLS) {
+            Map<Long, Long> marks = RECENT_IMPACT_SPLASH_CELLS.get(world);
+            if (marks == null || marks.isEmpty()) return false;
+            marks.entrySet().removeIf(entry -> {
+                long age = now - entry.getValue();
+                return age < 0L || age > IMPACT_SPLASH_INTAKE_COOLDOWN_TICKS;
+            });
+            for (int dx = -IMPACT_SPLASH_INTAKE_RADIUS; dx <= IMPACT_SPLASH_INTAKE_RADIUS; dx++) {
+                for (int dy = -IMPACT_SPLASH_INTAKE_RADIUS; dy <= IMPACT_SPLASH_INTAKE_RADIUS; dy++) {
+                    for (int dz = -IMPACT_SPLASH_INTAKE_RADIUS; dz <= IMPACT_SPLASH_INTAKE_RADIUS; dz++) {
+                        if (marks.containsKey(sourcePos.offset(dx, dy, dz).asLong())) return true;
+                    }
+                }
+            }
+            if (marks.isEmpty()) RECENT_IMPACT_SPLASH_CELLS.remove(world);
+            return false;
+        }
+    }
+
     private static LocalBounds deriveHullBounds(Map<CellPos, CellData> cells) {
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
         int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
@@ -1149,12 +1511,16 @@ public final class SableFluidTransport {
                                  LevelAccessor targetLevel, BlockPos targetPos,
                                  Fluid sourceFluid, int requestedUnits, ApiAccess api,
                                  boolean sourceIsPlot, boolean targetIsPlot) {
-        trace("MOVE_BEGIN", "requestedFluid=" + fluidId(sourceFluid) + ",requestedUnits=" + requestedUnits
-                + ",sourceIsPlot=" + sourceIsPlot + ",targetIsPlot=" + targetIsPlot
-                + ",source=" + cellDescription(sourceLevel, sourcePos)
-                + ",target=" + cellDescription(targetLevel, targetPos));
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            trace("MOVE_BEGIN", "requestedFluid=" + fluidId(sourceFluid) + ",requestedUnits=" + requestedUnits
+                    + ",sourceIsPlot=" + sourceIsPlot + ",targetIsPlot=" + targetIsPlot
+                    + ",source=" + cellDescription(sourceLevel, sourcePos)
+                    + ",target=" + cellDescription(targetLevel, targetPos));
+        }
         if (sourceLevel == targetLevel && sourcePos.equals(targetPos)) {
-            trace("MOVE_REJECT", "reason=same-cell,source=" + cellDescription(sourceLevel, sourcePos));
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("MOVE_REJECT", "reason=same-cell,source=" + cellDescription(sourceLevel, sourcePos));
+            }
             return 0;
         }
         BlockState sourceBlock = sourceLevel.getBlockState(sourcePos);
@@ -1163,14 +1529,18 @@ public final class SableFluidTransport {
                 || sourceBlock.getBlock() != sourceState.createLegacyBlock().getBlock()
                 || !isSupportedFluid(sourceState.getType(), api)
                 || !sameFluidFamily(sourceFluid, sourceState.getType())) {
-            trace("MOVE_REJECT", "reason=source-invalid,requestedFluid=" + fluidId(sourceFluid)
-                    + ",requestedUnits=" + requestedUnits + ",sourceIsPlot=" + sourceIsPlot
-                    + ",source=" + cellDescription(sourceLevel, sourcePos));
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("MOVE_REJECT", "reason=source-invalid,requestedFluid=" + fluidId(sourceFluid)
+                        + ",requestedUnits=" + requestedUnits + ",sourceIsPlot=" + sourceIsPlot
+                        + ",source=" + cellDescription(sourceLevel, sourcePos));
+            }
             return 0;
         }
         int sourceAmount = Math.clamp(sourceState.getAmount(), 0, 8);
         if (sourceAmount <= 0) {
-            trace("MOVE_REJECT", "reason=source-empty,source=" + cellDescription(sourceLevel, sourcePos));
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("MOVE_REJECT", "reason=source-empty,source=" + cellDescription(sourceLevel, sourcePos));
+            }
             return 0;
         }
 
@@ -1182,28 +1552,34 @@ public final class SableFluidTransport {
             if (targetBlock.getBlock() != targetState.createLegacyBlock().getBlock()
                     || !isSupportedFluid(targetState.getType(), api)
                     || !sameFluidFamily(sourceState.getType(), targetState.getType())) {
-                trace("MOVE_REJECT", "reason=target-fluid-conflict,sourceIsPlot=" + sourceIsPlot
-                        + ",targetIsPlot=" + targetIsPlot + ",sourceFluid=" + fluidId(sourceState.getType())
-                        + ",targetFluid=" + fluidId(targetState.getType())
-                        + ",source=" + cellDescription(sourceLevel, sourcePos)
-                        + ",target=" + cellDescription(targetLevel, targetPos));
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    trace("MOVE_REJECT", "reason=target-fluid-conflict,sourceIsPlot=" + sourceIsPlot
+                            + ",targetIsPlot=" + targetIsPlot + ",sourceFluid=" + fluidId(sourceState.getType())
+                            + ",targetFluid=" + fluidId(targetState.getType())
+                            + ",source=" + cellDescription(sourceLevel, sourcePos)
+                            + ",target=" + cellDescription(targetLevel, targetPos));
+                }
                 return 0;
             }
             targetAmount = Math.clamp(targetState.getAmount(), 0, 8);
             targetFluid = targetState.getType();
         } else if (!targetBlock.isAir()) {
-            trace("MOVE_REJECT", "reason=target-solid,sourceIsPlot=" + sourceIsPlot
-                    + ",targetIsPlot=" + targetIsPlot + ",source=" + cellDescription(sourceLevel, sourcePos)
-                    + ",target=" + cellDescription(targetLevel, targetPos));
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("MOVE_REJECT", "reason=target-solid,sourceIsPlot=" + sourceIsPlot
+                        + ",targetIsPlot=" + targetIsPlot + ",source=" + cellDescription(sourceLevel, sourcePos)
+                        + ",target=" + cellDescription(targetLevel, targetPos));
+            }
             return 0;
         }
 
         int units = Math.min(Math.min(requestedUnits, sourceAmount), 8 - targetAmount);
         if (units <= 0) {
-            trace("MOVE_REJECT", "reason=no-capacity,requestedUnits=" + requestedUnits
-                    + ",sourceAmount=" + sourceAmount + ",targetAmount=" + targetAmount
-                    + ",source=" + cellDescription(sourceLevel, sourcePos)
-                    + ",target=" + cellDescription(targetLevel, targetPos));
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("MOVE_REJECT", "reason=no-capacity,requestedUnits=" + requestedUnits
+                        + ",sourceAmount=" + sourceAmount + ",targetAmount=" + targetAmount
+                        + ",source=" + cellDescription(sourceLevel, sourcePos)
+                        + ",target=" + cellDescription(targetLevel, targetPos));
+            }
             return 0;
         }
         int newTargetAmount = targetAmount + units;
@@ -1223,9 +1599,11 @@ public final class SableFluidTransport {
                 return units;
             }
             boolean rollback = api.setAmountQuiet(targetLevel, targetPos, targetFluid, targetAmount);
-            trace("MOVE_ABORT", "stage=write-target,rollback=" + rollback + ",fluid=" + fluidId(targetFluid)
-                    + ",units=" + units + ",source=" + cellDescription(sourceLevel, sourcePos)
-                    + ",target=" + cellDescription(targetLevel, targetPos));
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("MOVE_ABORT", "stage=write-target,rollback=" + rollback + ",fluid=" + fluidId(targetFluid)
+                        + ",units=" + units + ",source=" + cellDescription(sourceLevel, sourcePos)
+                        + ",target=" + cellDescription(targetLevel, targetPos));
+            }
             return 0;
         }
         if (!api.setAmountQuietVerified(sourceLevel, sourcePos, sourceState.getType(), newSourceAmount)) {
@@ -1237,10 +1615,12 @@ public final class SableFluidTransport {
             }
             boolean sourceRollback = api.setAmountQuiet(sourceLevel, sourcePos, sourceState.getType(), sourceAmount);
             boolean targetRollback = api.setAmountQuiet(targetLevel, targetPos, targetFluid, targetAmount);
-            trace("MOVE_ABORT", "stage=write-source,sourceRollback=" + sourceRollback
-                    + ",targetRollback=" + targetRollback + ",fluid=" + fluidId(sourceState.getType())
-                    + ",units=" + units + ",source=" + cellDescription(sourceLevel, sourcePos)
-                    + ",target=" + cellDescription(targetLevel, targetPos));
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("MOVE_ABORT", "stage=write-source,sourceRollback=" + sourceRollback
+                        + ",targetRollback=" + targetRollback + ",fluid=" + fluidId(sourceState.getType())
+                        + ",units=" + units + ",source=" + cellDescription(sourceLevel, sourcePos)
+                        + ",target=" + cellDescription(targetLevel, targetPos));
+            }
             return 0;
         }
         if (!amountMatches(sourceLevel, sourcePos, sourceState.getType(), newSourceAmount)
@@ -1253,10 +1633,12 @@ public final class SableFluidTransport {
             }
             boolean sourceRollback = api.setAmountQuiet(sourceLevel, sourcePos, sourceState.getType(), sourceAmount);
             boolean targetRollback = api.setAmountQuiet(targetLevel, targetPos, targetFluid, targetAmount);
-            trace("MOVE_ABORT", "stage=post-write-verification,sourceRollback=" + sourceRollback
-                    + ",targetRollback=" + targetRollback + ",fluid=" + fluidId(sourceState.getType())
-                    + ",units=" + units + ",source=" + cellDescription(sourceLevel, sourcePos)
-                    + ",target=" + cellDescription(targetLevel, targetPos));
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("MOVE_ABORT", "stage=post-write-verification,sourceRollback=" + sourceRollback
+                        + ",targetRollback=" + targetRollback + ",fluid=" + fluidId(sourceState.getType())
+                        + ",units=" + units + ",source=" + cellDescription(sourceLevel, sourcePos)
+                        + ",target=" + cellDescription(targetLevel, targetPos));
+            }
             return 0;
         }
 
@@ -1265,19 +1647,24 @@ public final class SableFluidTransport {
         int actualSourceAmount = afterSourceState.isEmpty() ? 0 : afterSourceState.getAmount();
         int actualTargetAmount = afterTargetState.isEmpty() ? 0 : afterTargetState.getAmount();
         int totalActualAfter = actualSourceAmount + actualTargetAmount;
-        trace("MOVE_COMMIT", "fluid=" + fluidId(sourceState.getType()) + ",units=" + units
-                + ",sourceIsPlot=" + sourceIsPlot + ",targetIsPlot=" + targetIsPlot
-                + ",totalBefore=" + totalBefore + ",totalExpectedAfter=" + totalExpectedAfter
-                + ",totalActualAfter=" + totalActualAfter
-                + ",sourceBefore={" + sourceBeforeDescription + "}"
-                + ",sourceExpectedAmountAfter=" + newSourceAmount
-                + ",targetBefore={" + targetBeforeDescription + "}"
-                + ",targetExpectedAmountAfter=" + newTargetAmount
-                + ",sourceAfter=" + cellDescription(sourceLevel, sourcePos)
-                + ",targetAfter=" + cellDescription(targetLevel, targetPos));
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            trace("MOVE_COMMIT", "fluid=" + fluidId(sourceState.getType()) + ",units=" + units
+                    + ",sourceIsPlot=" + sourceIsPlot + ",targetIsPlot=" + targetIsPlot
+                    + ",totalBefore=" + totalBefore + ",totalExpectedAfter=" + totalExpectedAfter
+                    + ",totalActualAfter=" + totalActualAfter
+                    + ",sourceBefore={" + sourceBeforeDescription + "}"
+                    + ",sourceExpectedAmountAfter=" + newSourceAmount
+                    + ",targetBefore={" + targetBeforeDescription + "}"
+                    + ",targetExpectedAmountAfter=" + newTargetAmount
+                    + ",sourceAfter=" + cellDescription(sourceLevel, sourcePos)
+                    + ",targetAfter=" + cellDescription(targetLevel, targetPos));
+        }
 
         if (!sourceIsPlot && sourceLevel instanceof Level sourceWorld) {
             markWorldTracePosition(sourceWorld, sourcePos);
+            if (targetIsPlot && sourceWorld instanceof ServerLevel sourceServerWorld) {
+                markRecentInletSourceCell(sourceServerWorld, sourcePos);
+            }
         }
         if (!targetIsPlot && targetLevel instanceof Level targetWorld) {
             markWorldTracePosition(targetWorld, targetPos);
@@ -1348,19 +1735,21 @@ public final class SableFluidTransport {
                 targetLevel, targetPos, targetFluid, targetAfterAmount);
         if (!sourceApplied || !targetApplied || result == null) return false;
 
-        trace("FLUID_INTERACTION_COMMIT", "movedUnits=" + movedUnits
-                + ",sourceFluid=" + fluidId(sourceFluid) + ",targetFluid=" + fluidId(targetFluid)
-                + ",sourceBeforeAmount=" + sourceBeforeAmount + ",sourceExpectedAfter=" + sourceAfterAmount
-                + ",targetBeforeAmount=" + targetBeforeAmount + ",targetExpectedAfter=" + targetAfterAmount
-                + ",sourceIsPlot=" + sourceIsPlot + ",targetIsPlot=" + targetIsPlot
-                + ",resultLevel=" + levelId(result.level()) + ",resultPos=" + result.pos()
-                + ",resultBeforeBlock=" + blockId(result.beforeBlock())
-                + ",resultBeforeFluid=" + (result.beforeFluid().isEmpty() ? "none" : fluidId(result.beforeFluid().getType()))
-                + ",resultAfterBlock=" + blockId(result.afterBlock())
-                + ",resultAfterFluid=" + (result.afterFluid().isEmpty() ? "none"
-                : fluidId(result.afterFluid().getType()) + ":amount=" + result.afterFluid().getAmount())
-                + ",source=" + cellDescription(sourceLevel, sourcePos)
-                + ",target=" + cellDescription(targetLevel, targetPos));
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            trace("FLUID_INTERACTION_COMMIT", "movedUnits=" + movedUnits
+                    + ",sourceFluid=" + fluidId(sourceFluid) + ",targetFluid=" + fluidId(targetFluid)
+                    + ",sourceBeforeAmount=" + sourceBeforeAmount + ",sourceExpectedAfter=" + sourceAfterAmount
+                    + ",targetBeforeAmount=" + targetBeforeAmount + ",targetExpectedAfter=" + targetAfterAmount
+                    + ",sourceIsPlot=" + sourceIsPlot + ",targetIsPlot=" + targetIsPlot
+                    + ",resultLevel=" + levelId(result.level()) + ",resultPos=" + result.pos()
+                    + ",resultBeforeBlock=" + blockId(result.beforeBlock())
+                    + ",resultBeforeFluid=" + (result.beforeFluid().isEmpty() ? "none" : fluidId(result.beforeFluid().getType()))
+                    + ",resultAfterBlock=" + blockId(result.afterBlock())
+                    + ",resultAfterFluid=" + (result.afterFluid().isEmpty() ? "none"
+                    : fluidId(result.afterFluid().getType()) + ":amount=" + result.afterFluid().getAmount())
+                    + ",source=" + cellDescription(sourceLevel, sourcePos)
+                    + ",target=" + cellDescription(targetLevel, targetPos));
+        }
         finishCommittedMove(sourceLevel, sourcePos, targetLevel, targetPos,
                 sourceIsPlot, targetIsPlot, sourceAfterAmount);
         return true;
@@ -1372,6 +1761,9 @@ public final class SableFluidTransport {
             boolean sourceIsPlot, boolean targetIsPlot, int sourceAfterAmount) {
         if (!sourceIsPlot && sourceLevel instanceof Level sourceWorld) {
             markWorldTracePosition(sourceWorld, sourcePos);
+            if (targetIsPlot && sourceWorld instanceof ServerLevel sourceServerWorld) {
+                markRecentInletSourceCell(sourceServerWorld, sourcePos);
+            }
         }
         if (!targetIsPlot && targetLevel instanceof Level targetWorld) {
             markWorldTracePosition(targetWorld, targetPos);
@@ -1490,14 +1882,18 @@ public final class SableFluidTransport {
 
     private static void notifyExternalFluidChange(LevelAccessor level, BlockPos pos, Fluid fluid) {
         if (fluid != null) {
-            trace("EXTERNAL_TICK_SCHEDULE", "delay=1,fluid=" + fluidId(fluid)
-                    + "," + cellDescription(level, pos));
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                trace("EXTERNAL_TICK_SCHEDULE", "delay=1,fluid=" + fluidId(fluid)
+                        + "," + cellDescription(level, pos));
+            }
             try {
 
                 level.scheduleTick(pos, fluid, 1);
             } catch (Throwable failure) {
-                MSpellCompatDebug.error("sable_transport", "external_tick_schedule_failed", failure,
-                        "level=" + levelId(level) + ",pos=" + pos + ",fluid=" + fluidId(fluid));
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.error("sable_transport", "external_tick_schedule_failed", failure,
+                            "level=" + levelId(level) + ",pos=" + pos + ",fluid=" + fluidId(fluid));
+                }
             }
         }
         try {
@@ -1508,8 +1904,10 @@ public final class SableFluidTransport {
                     : level.getBlockState(pos).getBlock();
             update.invoke(level, pos, updateBlock);
         } catch (Throwable failure) {
-            MSpellCompatDebug.error("sable_transport", "neighbor_update_failed", failure,
-                    "level=" + levelId(level) + ",pos=" + pos + ",fluid=" + fluidId(fluid));
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.error("sable_transport", "neighbor_update_failed", failure,
+                        "level=" + levelId(level) + ",pos=" + pos + ",fluid=" + fluidId(fluid));
+            }
         }
     }
 
@@ -1574,8 +1972,10 @@ public final class SableFluidTransport {
             Object result = method.invoke(pose, vector);
             return result instanceof Vec3 vec ? vec : null;
         } catch (Throwable failure) {
-            MSpellCompatDebug.error("sable_transport", "pose_vector_invoke_failed", failure,
-                    "pose=" + pose.getClass().getName() + ",method=" + methodName + ",vector=" + vector);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.error("sable_transport", "pose_vector_invoke_failed", failure,
+                        "pose=" + pose.getClass().getName() + ",method=" + methodName + ",vector=" + vector);
+            }
             return null;
         }
     }
@@ -1609,8 +2009,10 @@ public final class SableFluidTransport {
                         type.getMethod("doesModifyThisFluid", Fluid.class),
                         ffUtils.getMethod("getBlockForFluidByAmount", Fluid.class, int.class));
             } catch (Throwable failure) {
-                MSpellCompatDebug.error("sable_transport", "flowing_fluids_api_bind_failed", failure,
-                        "apiClass=" + FF_API_CLASS);
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.error("sable_transport", "flowing_fluids_api_bind_failed", failure,
+                            "apiClass=" + FF_API_CLASS);
+                }
                 cachedApi = null;
             }
             return cachedApi;
@@ -1656,6 +2058,12 @@ public final class SableFluidTransport {
         throw new ReflectiveOperationException(methodName + "() did not return a number");
     }
 
+    private static double readDouble(Object target, String methodName) throws ReflectiveOperationException {
+        Object value = invoke(target, methodName);
+        if (value instanceof Number number) return number.doubleValue();
+        throw new ReflectiveOperationException(methodName + "() did not return a number");
+    }
+
     private record NoArgMethodKey(Class<?> owner, String name) {
     }
 
@@ -1687,7 +2095,8 @@ public final class SableFluidTransport {
 
     private record LocalGridCache(List<InletCatchPoint> inletCatchPoints,
                                   LevelAccessor accessor, BlockPos center, StorageBounds storageBounds,
-                                  LocalBounds localBounds, int volume) {
+                                  LocalBounds localBounds, int volume,
+                                  Set<CellPos> horizontallyContainedCells) {
     }
 
     private record LocalBounds(int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
@@ -1741,8 +2150,10 @@ public final class SableFluidTransport {
             try {
                 return Boolean.TRUE.equals(isModEnabled.invoke(api));
             } catch (Throwable throwable) {
-                MSpellCompatDebug.error("sable_transport", "flowing_fluids_is_enabled_failed", throwable,
-                        "api=" + api.getClass().getName());
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.error("sable_transport", "flowing_fluids_is_enabled_failed", throwable,
+                            "api=" + api.getClass().getName());
+                }
                 return false;
             }
         }
@@ -1755,8 +2166,10 @@ public final class SableFluidTransport {
             try {
                 managed = Boolean.TRUE.equals(doesModifyThisFluid.invoke(api, fluid));
             } catch (Throwable throwable) {
-                MSpellCompatDebug.error("sable_transport", "flowing_fluids_is_managed_failed", throwable,
-                        "fluid=" + fluidId(fluid));
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.error("sable_transport", "flowing_fluids_is_managed_failed", throwable,
+                            "fluid=" + fluidId(fluid));
+                }
                 managed = false;
             }
             managedFluidCache.put(fluid, managed);
@@ -1772,9 +2185,11 @@ public final class SableFluidTransport {
                 if (!(rawState instanceof BlockState state)) return false;
                 return level.setBlock(pos, state, 2);
             } catch (Throwable throwable) {
-                MSpellCompatDebug.error("sable_transport", "fluid_state_write_failed", throwable,
-                        "level=" + levelId(level) + ",pos=" + pos + ",fluid=" + fluidId(fluid)
-                                + ",amount=" + amount);
+                if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                    MSpellCompatDebug.error("sable_transport", "fluid_state_write_failed", throwable,
+                            "level=" + levelId(level) + ",pos=" + pos + ",fluid=" + fluidId(fluid)
+                                    + ",amount=" + amount);
+                }
                 return false;
             }
         }

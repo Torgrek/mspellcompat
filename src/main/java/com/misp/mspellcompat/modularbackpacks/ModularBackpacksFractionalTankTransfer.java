@@ -44,11 +44,15 @@ public final class ModularBackpacksFractionalTankTransfer {
     }
 
     private static void debugLog(String message, Object... arguments) {
-        MSpellCompatDebug.debug(message, arguments);
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.debug(message, arguments);
+        }
     }
 
     private static void debugException(String message, Throwable exception) {
-        MSpellCompatDebug.debugException(message, exception);
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.debugException(message, exception);
+        }
     }
 
     private static final String NATIVE_GUARD_KNOWN_TAG = "MSpellCompatFractionalFFGuardKnown";

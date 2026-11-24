@@ -38,16 +38,20 @@ public abstract class MixinLsoCanteenFiniteWater {
     ) {
         Level level = context.getLevel();
         InteractionResult result = cir.getReturnValue();
-        MSpellCompatDebug.log("lso_canteen", "use_on_return", "player=" + context.getPlayer()
-                + ",pos=" + context.getClickedPos() + ",result=" + result
-                + ",client=" + level.isClientSide
-                + ",enabled=" + MSpellCompatConfig.LSO_CANTEEN_CONSUME_FINITE_WATER.get());
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.log("lso_canteen", "use_on_return", "player=" + context.getPlayer()
+                    + ",pos=" + context.getClickedPos() + ",result=" + result
+                    + ",client=" + level.isClientSide
+                    + ",enabled=" + MSpellCompatConfig.LSO_CANTEEN_CONSUME_FINITE_WATER.get());
+        }
         if (level.isClientSide || !MSpellCompatConfig.LSO_CANTEEN_CONSUME_FINITE_WATER.get()) {
             return;
         }
 
         if (result == null || !result.consumesAction()) {
-            MSpellCompatDebug.log("lso_canteen", "skip", "reason=use_on_not_consumed,result=" + result);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("lso_canteen", "skip", "reason=use_on_not_consumed,result=" + result);
+            }
             return;
         }
 
@@ -71,9 +75,11 @@ public abstract class MixinLsoCanteenFiniteWater {
             InteractionHand hand,
             CallbackInfoReturnable<InteractionResultHolder<ItemStack>> cir
     ) {
-        MSpellCompatDebug.log("lso_canteen", "use_fill_hook", "player=" + player.getGameProfile().getName()
-                + ",hand=" + hand + ",client=" + level.isClientSide
-                + ",enabled=" + MSpellCompatConfig.LSO_CANTEEN_CONSUME_FINITE_WATER.get());
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.log("lso_canteen", "use_fill_hook", "player=" + player.getGameProfile().getName()
+                    + ",hand=" + hand + ",client=" + level.isClientSide
+                    + ",enabled=" + MSpellCompatConfig.LSO_CANTEEN_CONSUME_FINITE_WATER.get());
+        }
         if (level.isClientSide || !MSpellCompatConfig.LSO_CANTEEN_CONSUME_FINITE_WATER.get()) {
             return;
         }
@@ -86,7 +92,9 @@ public abstract class MixinLsoCanteenFiniteWater {
         if (hit instanceof BlockHitResult blockHit) {
             mspell$consumeWaterAt(level, blockHit.getBlockPos());
         } else {
-            MSpellCompatDebug.log("lso_canteen", "skip", "reason=raycast_not_block,hit=" + hit + ",reach=" + reach);
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("lso_canteen", "skip", "reason=raycast_not_block,hit=" + hit + ",reach=" + reach);
+            }
         }
     }
 
@@ -95,12 +103,16 @@ public abstract class MixinLsoCanteenFiniteWater {
         FluidState state = level.getFluidState(pos);
         Fluid fluid = state.getType();
         if (fluid != Fluids.WATER && fluid != Fluids.FLOWING_WATER) {
-            MSpellCompatDebug.log("lso_canteen", "skip", "reason=not_supported_water,pos=" + pos
-                    + "," + MSpellCompatDebug.describeFluid(level, pos));
+            if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+                MSpellCompatDebug.log("lso_canteen", "skip", "reason=not_supported_water,pos=" + pos
+                        + "," + MSpellCompatDebug.describeFluid(level, pos));
+            }
             return;
         }
 
-        MSpellCompatDebug.log("lso_canteen", "consume_begin", "pos=" + pos + ",requested=" + MSpellCompatConfig.LSO_WATER_UNITS_PER_CANTEEN_FILL.get() + ",state=" + state);
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.log("lso_canteen", "consume_begin", "pos=" + pos + ",requested=" + MSpellCompatConfig.LSO_WATER_UNITS_PER_CANTEEN_FILL.get() + ",state=" + state);
+        }
         FFFluidUtils.removeAmountFromFluidAtPosWithRemainder(level, pos, fluid,
                 MSpellCompatConfig.LSO_WATER_UNITS_PER_CANTEEN_FILL.get());
         MSpellCompatDebug.log("lso_canteen", "consume_end", () -> "pos=" + pos + ",after="

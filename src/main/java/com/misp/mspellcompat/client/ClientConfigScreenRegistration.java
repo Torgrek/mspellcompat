@@ -22,7 +22,9 @@ public final class ClientConfigScreenRegistration {
         }
 
         modContainer.registerExtensionPoint(IConfigScreenFactory.class, screenFactory);
-        MSpellCompatDebug.log("client_config", "screen_registered", "clothConfigLoaded=" + clothConfigLoaded
-                + ",factory=" + screenFactory.getClass().getName());
+        if (MSpellCompatDebug.isDebugLoggingEnabled()) {
+            MSpellCompatDebug.log("client_config", "screen_registered", "clothConfigLoaded=" + clothConfigLoaded
+                    + ",factory=" + screenFactory.getClass().getName());
+        }
     }
 }
