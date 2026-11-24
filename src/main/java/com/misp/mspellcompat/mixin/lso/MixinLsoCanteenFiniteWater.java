@@ -100,8 +100,9 @@ public abstract class MixinLsoCanteenFiniteWater {
             return;
         }
 
-        MSpellCompatDebug.log("lso_canteen", "consume_begin", "pos=" + pos + ",requested=1,state=" + state);
-        FFFluidUtils.removeAmountFromFluidAtPosWithRemainder(level, pos, fluid, 1);
+        MSpellCompatDebug.log("lso_canteen", "consume_begin", "pos=" + pos + ",requested=" + MSpellCompatConfig.LSO_WATER_UNITS_PER_CANTEEN_FILL.get() + ",state=" + state);
+        FFFluidUtils.removeAmountFromFluidAtPosWithRemainder(level, pos, fluid,
+                MSpellCompatConfig.LSO_WATER_UNITS_PER_CANTEEN_FILL.get());
         MSpellCompatDebug.log("lso_canteen", "consume_end", () -> "pos=" + pos + ",after="
                 + MSpellCompatDebug.describeFluid(level, pos));
     }

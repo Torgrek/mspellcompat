@@ -32,14 +32,6 @@ public final class SableFluidMassIntegration {
     private static final String SABLE_CONTAINER_CLASS =
             "dev.ryanhcode.sable.api.sublevel.SubLevelContainer";
 
-    private static final long SCAN_INTERVAL_TICKS = 5L;
-
-    private static final long MAX_SCAN_CELLS = 262_144L;
-
-    private static final long HULL_REFRESH_TICKS = 100L;
-
-    private static final double WATER_MASS_PER_FULL_BLOCK = 1.0;
-
     private static final Map<MinecraftServer, Map<String, TrackerState>> STATES = new WeakHashMap<>();
     private static final Map<Class<?>, Method> ADD_BLOCK_MASS_METHODS = new HashMap<>();
 
@@ -48,14 +40,15 @@ public final class SableFluidMassIntegration {
 
     @SubscribeEvent
     public static void onServerTickPre(ServerTickEvent.Pre event) {
-        if (!ModList.get().isLoaded("sable")) return;
+        if (!SableFluidRuntimeConfig.MASS_INTEGRATION_ENABLED.get() || !ModList.get().isLoaded("sable")) return;
 
         MinecraftServer server = event.getServer();
         ServerLevel overworld = server.overworld();
         long gameTime = overworld.getGameTime();
-        if (gameTime % SCAN_INTERVAL_TICKS != 0L) return;
+        int scanInterval = SableFluidRuntimeConfig.MASS_SCAN_INTERVAL_TICKS.get();
+        if (gameTime % scanInterval != 0L) return;
         MSpellCompatDebug.log("sable_mass", "scan_begin", "gameTime=" + gameTime
-                + ",interval=" + SCAN_INTERVAL_TICKS);
+                + ",interval=" + scanInterval);
 
         Set<String> activeKeys = new HashSet<>();
         boolean enumerationComplete = true;
@@ -116,10 +109,11 @@ public final class SableFluidMassIntegration {
             long width = (long) maxX - minX + 1L;
             long height = (long) maxY - minY + 1L;
             long depth = (long) maxZ - minZ + 1L;
+            long maxScanCells = SableFluidRuntimeConfig.MASS_MAX_SCAN_CELLS.get();
             if (width <= 0 || height <= 0 || depth <= 0
-                    || width > MAX_SCAN_CELLS || height > MAX_SCAN_CELLS || depth > MAX_SCAN_CELLS
-                    || width * height > MAX_SCAN_CELLS
-                    || width * height * depth > MAX_SCAN_CELLS) {
+                    || width > maxScanCells || height > maxScanCells || depth > maxScanCells
+                    || width * height > maxScanCells
+                    || width * height * depth > maxScanCells) {
                 MSpellCompatDebug.log("sable_mass", "sublevel_skip", "key=" + key + ",reason=scan_bounds_limit"
                         + ",bounds=" + minX + "," + minY + "," + minZ + ".." + maxX + "," + maxY + "," + maxZ
                         + ",volume=" + (width * height * depth));
@@ -159,7 +153,7 @@ public final class SableFluidMassIntegration {
             }
 
             if (trackerChanged || state.hullBounds == null
-                    || gameTime - state.lastHullScanTick >= HULL_REFRESH_TICKS) {
+                    || gameTime - state.lastHullScanTick >= SableFluidRuntimeConfig.MASS_HULL_REFRESH_TICKS.get()) {
                 state.hullBounds = deriveHullBounds(accessor, localBounds);
                 state.lastHullScanTick = gameTime;
             }
@@ -174,7 +168,7 @@ public final class SableFluidMassIntegration {
             int currentTotalUnits = currentWaterUnits.values().stream().mapToInt(Integer::intValue).sum();
             int previousTotalUnits = state.totalWaterUnits;
             double massBefore = readMass(selfMassTracker);
-            double previousWaterMass = previousTotalUnits / 8.0 * WATER_MASS_PER_FULL_BLOCK;
+            double previousWaterMass = previousTotalUnits / 8.0 * SableFluidRuntimeConfig.MASS_WATER_MASS_PER_FULL_BLOCK.get();
             double structuralMass = massBefore - previousWaterMass;
             MSpellCompatDebug.log("sable_mass", "snapshot", "key=" + key + ",gameTime=" + gameTime
                     + ",waterCells=" + currentWaterUnits.size() + ",currentWaterUnits=" + currentTotalUnits
@@ -199,7 +193,7 @@ public final class SableFluidMassIntegration {
                     int deltaUnits = afterUnits - beforeUnits;
                     if (deltaUnits == 0) continue;
 
-                    double deltaMass = (deltaUnits / 8.0) * WATER_MASS_PER_FULL_BLOCK;
+                    double deltaMass = (deltaUnits / 8.0) * SableFluidRuntimeConfig.MASS_WATER_MASS_PER_FULL_BLOCK.get();
 
                     BlockPos plotPos = center.offset(localCell.x(), localCell.y(), localCell.z());
                     addBlockMass.invoke(selfMassTracker, accessor, waterBlock, plotPos, deltaMass, null);
@@ -243,7 +237,7 @@ public final class SableFluidMassIntegration {
         if (state.waterUnits.isEmpty()) return;
         try {
             double massBefore = readMass(tracker);
-            double trackedWaterMass = state.totalWaterUnits / 8.0 * WATER_MASS_PER_FULL_BLOCK;
+            double trackedWaterMass = state.totalWaterUnits / 8.0 * SableFluidRuntimeConfig.MASS_WATER_MASS_PER_FULL_BLOCK.get();
             if (!Double.isFinite(massBefore) || massBefore - trackedWaterMass <= 1.0e-6) {
                 return;
             }
@@ -253,7 +247,7 @@ public final class SableFluidMassIntegration {
             List<AppliedDelta> applied = new ArrayList<>();
             try {
                 for (Map.Entry<CellPos, Integer> entry : state.waterUnits.entrySet()) {
-                    double mass = entry.getValue() / 8.0 * WATER_MASS_PER_FULL_BLOCK;
+                    double mass = entry.getValue() / 8.0 * SableFluidRuntimeConfig.MASS_WATER_MASS_PER_FULL_BLOCK.get();
                     if (mass <= 0.0) continue;
                     CellPos cell = entry.getKey();
                     BlockPos plotPos = center.offset(cell.x(), cell.y(), cell.z());

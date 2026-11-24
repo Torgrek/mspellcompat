@@ -49,7 +49,8 @@ public abstract class MixinBurntFlowingFluidTick {
 
     @Inject(method = "tick", at = @At("HEAD"), cancellable = true, require = 1)
     private void mspell$extinguishBeforeFlow(Level level, BlockPos pos, FluidState scheduledState, CallbackInfo ci) {
-        if (level.isClientSide() || !MSpellCompatConfig.BURNT_COUNT_FLOWING_FLUIDS_WATER.get()) return;
+        if (level.isClientSide() || !MSpellCompatConfig.BURNT_WATER_EXTINGUISH_ENABLED.get()
+                || !MSpellCompatConfig.BURNT_COUNT_FLOWING_FLUIDS_WATER.get()) return;
 
         Fluid self = (Fluid) (Object) this;
         if (self != Fluids.WATER && self != Fluids.FLOWING_WATER) return;

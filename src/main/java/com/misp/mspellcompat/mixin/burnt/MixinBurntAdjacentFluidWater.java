@@ -64,7 +64,8 @@ public abstract class MixinBurntAdjacentFluidWater {
             double z,
             CallbackInfoReturnable<Boolean> cir
     ) {
-        if (level.isClientSide()) return;
+        if (level.isClientSide() || !MSpellCompatConfig.BURNT_WATER_EXTINGUISH_ENABLED.get()
+                || !MSpellCompatConfig.BURNT_COUNT_FLOWING_FLUIDS_WATER.get()) return;
 
         BlockPos center = BlockPos.containing(x, y, z);
         boolean originalResult = cir.getReturnValueZ();

@@ -1,5 +1,6 @@
 package com.misp.mspellcompat.modularbackpacks;
 
+import com.misp.mspellcompat.config.MSpellCompatConfig;
 import com.misp.mspellcompat.util.MSpellCompatDebug;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.component.DataComponents;
@@ -60,6 +61,7 @@ public final class ModularBackpacksFractionalTankTransfer {
     }
 
     public static NativeTickDecision prepareNativeTick(Player player, ItemStack tankStack) {
+        if (!MSpellCompatConfig.MODULAR_BACKPACKS_FRACTIONAL_TRANSFER_ENABLED.get()) return NativeTickDecision.ALLOW;
         if (player == null || tankStack == null || tankStack.isEmpty() || player.level().isClientSide) {
             return NativeTickDecision.ALLOW;
         }
@@ -78,6 +80,7 @@ public final class ModularBackpacksFractionalTankTransfer {
     }
 
     public static boolean refreshNativeTickCache(Player player, ItemStack tankStack) {
+        if (!MSpellCompatConfig.MODULAR_BACKPACKS_FRACTIONAL_TRANSFER_ENABLED.get()) return false;
         if (player == null || tankStack == null || tankStack.isEmpty() || player.level().isClientSide) {
             return false;
         }
@@ -85,6 +88,7 @@ public final class ModularBackpacksFractionalTankTransfer {
     }
 
     public static ItemStack snapshotTankInput(Player player, ItemStack tankStack) {
+        if (!MSpellCompatConfig.MODULAR_BACKPACKS_FRACTIONAL_TRANSFER_ENABLED.get()) return ItemStack.EMPTY;
         if (player == null || tankStack == null || tankStack.isEmpty() || !isTankStack(tankStack)) {
             return ItemStack.EMPTY;
         }
@@ -168,6 +172,7 @@ public final class ModularBackpacksFractionalTankTransfer {
     }
 
     public static boolean onTankSlotInteraction(Player player, ItemStack tankStack) {
+        if (!MSpellCompatConfig.MODULAR_BACKPACKS_FRACTIONAL_TRANSFER_ENABLED.get()) return false;
         if (player == null || tankStack == null || tankStack.isEmpty() || player.level().isClientSide) {
             return false;
         }

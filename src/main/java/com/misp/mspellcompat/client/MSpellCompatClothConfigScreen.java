@@ -58,10 +58,43 @@ public final class MSpellCompatClothConfigScreen {
                 1, 8);
         addBoolean(lso, entries, "mspellcompat.gui.lso.canteen.tooltip",
                 "mspellcompat.gui.lso.canteen", MSpellCompatConfig.LSO_CANTEEN_CONSUME_FINITE_WATER);
+        addInt(lso, entries, null, "mspellcompat.gui.lso.units_per_canteen_fill",
+                MSpellCompatConfig.LSO_WATER_UNITS_PER_CANTEEN_FILL, 1, 8);
+        ConfigCategory snow = builder.getOrCreateCategory(
+                Component.translatable("mspellcompat.gui.category.snow_melting")
+        );
+        addBoolean(snow, entries, null, "mspellcompat.gui.lso.snow_melting",
+                MSpellCompatConfig.LSO_HEAT_SNOW_MELTING_ENABLED);
+        addDouble(snow, entries, null, "mspellcompat.gui.lso.snow_melting_ambient_temperature",
+                MSpellCompatConfig.LSO_SNOW_MELTING_MIN_AMBIENT_TEMPERATURE, 0.0, 40.0);
+        addInt(snow, entries, null, "mspellcompat.gui.lso.snow_melting_chance",
+                MSpellCompatConfig.LSO_SNOW_MELTING_CHANCE_DENOMINATOR, 1, 1000);
+        addInt(snow, entries, null, "mspellcompat.gui.lso.snow_melting_heat_chance",
+                MSpellCompatConfig.LSO_SNOW_MELTING_HEAT_CHANCE_DENOMINATOR, 1, 1000);
+        addInt(snow, entries, null, "mspellcompat.gui.lso.snow_melting_heat_radius",
+                MSpellCompatConfig.LSO_SNOW_MELTING_HEAT_SOURCE_RADIUS, 1, 8);
+        addInt(snow, entries, null, "mspellcompat.gui.lso.snow_block_water_units",
+                MSpellCompatConfig.LSO_SNOW_BLOCK_WATER_UNITS, 1, 8);
+        addInt(snow, entries, null, "mspellcompat.gui.lso.snow_layer_water_units",
+                MSpellCompatConfig.LSO_SNOW_LAYER_WATER_UNITS, 1, 8);
+        addInt(snow, entries, null, "mspellcompat.gui.lso.snow_melting_scan_interval",
+                MSpellCompatConfig.LSO_SNOW_MELTING_SCAN_INTERVAL_TICKS, 1, 200);
+        addInt(snow, entries, null, "mspellcompat.gui.lso.snow_melting_scan_radius",
+                MSpellCompatConfig.LSO_SNOW_MELTING_SCAN_RADIUS, 1, 12);
+        addInt(snow, entries, null, "mspellcompat.gui.lso.snow_melting_max_blocks",
+                MSpellCompatConfig.LSO_SNOW_MELTING_MAX_BLOCKS_PER_SCAN, 1, 64);
+
+        ConfigCategory backpacks = builder.getOrCreateCategory(
+                Component.translatable("mspellcompat.gui.category.modular_backpacks")
+        );
+        addBoolean(backpacks, entries, null, "mspellcompat.gui.modular_backpacks.fractional_transfer",
+                MSpellCompatConfig.MODULAR_BACKPACKS_FRACTIONAL_TRANSFER_ENABLED);
 
         ConfigCategory burnt = builder.getOrCreateCategory(
                 Component.translatable("mspellcompat.gui.category.burnt")
         );
+        addBoolean(burnt, entries, null, "mspellcompat.gui.burnt.enabled",
+                MSpellCompatConfig.BURNT_WATER_EXTINGUISH_ENABLED);
         addBoolean(burnt, entries, "mspellcompat.gui.burnt.count_partial_water.tooltip",
                 "mspellcompat.gui.burnt.count_partial_water", MSpellCompatConfig.BURNT_COUNT_FLOWING_FLUIDS_WATER);
         addInt(burnt, entries, "mspellcompat.gui.burnt.minimum_amount.tooltip",
@@ -119,32 +152,29 @@ public final class MSpellCompatClothConfigScreen {
             ConfigCategory category, ConfigEntryBuilder entries,
             String tooltipKey, String labelKey, ModConfigSpec.BooleanValue value
     ) {
-        category.addEntry(entries.startBooleanToggle(Component.translatable(labelKey), value.get())
-                .setDefaultValue(value.getDefault())
-                .setTooltip(Component.translatable(tooltipKey))
-                .setSaveConsumer(value::set)
-                .build());
+        var entry = entries.startBooleanToggle(Component.translatable(labelKey), value.get())
+                .setDefaultValue(value.getDefault());
+        if (tooltipKey != null) entry.setTooltip(Component.translatable(tooltipKey));
+        category.addEntry(entry.setSaveConsumer(value::set).build());
     }
 
     private static void addInt(
             ConfigCategory category, ConfigEntryBuilder entries,
             String tooltipKey, String labelKey, ModConfigSpec.IntValue value, int min, int max
     ) {
-        category.addEntry(entries.startIntField(Component.translatable(labelKey), value.get())
-                .setMin(min).setMax(max).setDefaultValue(value.getDefault())
-                .setTooltip(Component.translatable(tooltipKey))
-                .setSaveConsumer(value::set)
-                .build());
+        var entry = entries.startIntField(Component.translatable(labelKey), value.get())
+                .setMin(min).setMax(max).setDefaultValue(value.getDefault());
+        if (tooltipKey != null) entry.setTooltip(Component.translatable(tooltipKey));
+        category.addEntry(entry.setSaveConsumer(value::set).build());
     }
 
     private static void addDouble(
             ConfigCategory category, ConfigEntryBuilder entries,
             String tooltipKey, String labelKey, ModConfigSpec.DoubleValue value, double min, double max
     ) {
-        category.addEntry(entries.startDoubleField(Component.translatable(labelKey), value.get())
-                .setMin(min).setMax(max).setDefaultValue(value.getDefault())
-                .setTooltip(Component.translatable(tooltipKey))
-                .setSaveConsumer(value::set)
-                .build());
+        var entry = entries.startDoubleField(Component.translatable(labelKey), value.get())
+                .setMin(min).setMax(max).setDefaultValue(value.getDefault());
+        if (tooltipKey != null) entry.setTooltip(Component.translatable(tooltipKey));
+        category.addEntry(entry.setSaveConsumer(value::set).build());
     }
 }

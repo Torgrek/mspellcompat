@@ -19,6 +19,8 @@ public final class CompatMixinPlugin implements IMixinConfigPlugin {
             "com.misp.mspellcompat.mixin.lso.MixinLsoFiniteWaterBlockDrinking";
     private static final String LSO_CANTEEN_MIXIN =
             "com.misp.mspellcompat.mixin.lso.MixinLsoCanteenFiniteWater";
+    private static final String LSO_SNOW_MELTING_MIXIN =
+            "com.misp.mspellcompat.mixin.lso.MixinSnowLayerTemperatureMelt";
     private static final String BURNT_FLUID_STATE_MIXIN =
             "com.misp.mspellcompat.mixin.burnt.MixinBurntAdjacentFluidWater";
     private static final String BURNT_FLOWING_FLUID_TICK_MIXIN =
@@ -55,7 +57,8 @@ public final class CompatMixinPlugin implements IMixinConfigPlugin {
         }
         if (LSO_FINITE_WATER_MIXIN.equals(mixinClassName)
                 || LSO_BLOCK_FINITE_WATER_MIXIN.equals(mixinClassName)
-                || LSO_CANTEEN_MIXIN.equals(mixinClassName)) {
+                || LSO_CANTEEN_MIXIN.equals(mixinClassName)
+                || LSO_SNOW_MELTING_MIXIN.equals(mixinClassName)) {
             return isModLoaded("legendarysurvivaloverhaul")
                     && isModLoaded("flowing_fluids");
         }

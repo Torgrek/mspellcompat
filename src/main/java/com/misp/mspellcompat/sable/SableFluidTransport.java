@@ -566,8 +566,8 @@ public final class SableFluidTransport {
         Set<CellPos> lockedCells = new HashSet<>();
         Set<Long> claimedExternalPositions = new HashSet<>();
         int transfers = 0;
-        int maxTransfers = Math.max(SableFluidRuntimeConfig.MAX_TRANSFERS_PER_SUBLEVEL.get(), 16);
-        int maxUnits = Math.max(SableFluidRuntimeConfig.UNITS_PER_TRANSFER.get(), 2);
+        int maxTransfers = SableFluidRuntimeConfig.MAX_TRANSFERS_PER_SUBLEVEL.get();
+        int maxUnits = SableFluidRuntimeConfig.UNITS_PER_TRANSFER.get();
 
         fluidCells.clear();
         for (Map.Entry<CellPos, CellData> entry : cells.entrySet()) {

@@ -10,6 +10,7 @@
     "lso.MixinLsoFiniteWaterDrinking",
     "lso.MixinLsoFiniteWaterBlockDrinking",
     "lso.MixinLsoCanteenFiniteWater",
+    "lso.MixinSnowLayerTemperatureMelt",
     "burnt.MixinBurntAdjacentFluidWater",
     "burnt.MixinBurntLiquidBlockPlacement",
     "burnt.MixinBurntFlowingFluidTick",

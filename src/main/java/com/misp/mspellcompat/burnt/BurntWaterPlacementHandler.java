@@ -36,7 +36,8 @@ public final class BurntWaterPlacementHandler {
     }
 
     public static void onWaterPlaced(Level level, BlockPos waterPos) {
-        if (level.isClientSide() || !MSpellCompatConfig.BURNT_COUNT_FLOWING_FLUIDS_WATER.get()) return;
+        if (level.isClientSide() || !MSpellCompatConfig.BURNT_WATER_EXTINGUISH_ENABLED.get()
+                || !MSpellCompatConfig.BURNT_COUNT_FLOWING_FLUIDS_WATER.get()) return;
 
         FluidState initialWater = level.getFluidState(waterPos);
         if (!isWater(initialWater)) return;

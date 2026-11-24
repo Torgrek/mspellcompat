@@ -52,6 +52,9 @@ public final class MSpellCompat {
                     + ",surfaceWaterUnits=" + MSpellCompatConfig.FLOWING_FLUIDS_SURFACE_WATER_UNITS.get()
                     + ",lsoDrink=" + MSpellCompatConfig.LSO_CONSUME_FINITE_WATER_WHEN_DRINKING.get()
                     + ",lsoCanteen=" + MSpellCompatConfig.LSO_CANTEEN_CONSUME_FINITE_WATER.get()
+                    + ",lsoSnowMelt=" + MSpellCompatConfig.LSO_HEAT_SNOW_MELTING_ENABLED.get()
+                    + ",modularBackpacks=" + MSpellCompatConfig.MODULAR_BACKPACKS_FRACTIONAL_TRANSFER_ENABLED.get()
+                    + ",burntWaterEnabled=" + MSpellCompatConfig.BURNT_WATER_EXTINGUISH_ENABLED.get()
                     + ",burntWater=" + MSpellCompatConfig.BURNT_COUNT_FLOWING_FLUIDS_WATER.get()
                     + ",burntLocalRain=" + MSpellCompatConfig.BURNT_REQUIRE_LOCAL_SIMPLE_CLOUDS_RAIN.get());
         } else if (event.getConfig().getSpec() == SableFluidPhysicsConfig.SPEC) {
@@ -62,7 +65,12 @@ public final class MSpellCompat {
                     + ",maxCellsPerSublevel=" + SableFluidRuntimeConfig.MAX_CELLS_PER_SUBLEVEL.get()
                     + ",maxCellsPerPass=" + SableFluidRuntimeConfig.MAX_CELLS_PER_PASS.get()
                     + ",maxTransfers=" + SableFluidRuntimeConfig.MAX_TRANSFERS_PER_SUBLEVEL.get()
-                    + ",unitsPerTransfer=" + SableFluidRuntimeConfig.UNITS_PER_TRANSFER.get());
+                    + ",unitsPerTransfer=" + SableFluidRuntimeConfig.UNITS_PER_TRANSFER.get()
+                    + ",massEnabled=" + SableFluidRuntimeConfig.MASS_INTEGRATION_ENABLED.get()
+                    + ",massScanInterval=" + SableFluidRuntimeConfig.MASS_SCAN_INTERVAL_TICKS.get()
+                    + ",maxMassScanCells=" + SableFluidRuntimeConfig.MASS_MAX_SCAN_CELLS.get()
+                    + ",hullRefresh=" + SableFluidRuntimeConfig.MASS_HULL_REFRESH_TICKS.get()
+                    + ",waterMass=" + SableFluidRuntimeConfig.MASS_WATER_MASS_PER_FULL_BLOCK.get());
         }
         MSpellCompatDebug.log("config", "loaded", "file=" + event.getConfig().getFileName());
     }
@@ -76,6 +84,9 @@ public final class MSpellCompat {
                     + ",surfaceWater=" + MSpellCompatConfig.FLOWING_FLUIDS_CREATE_SURFACE_WATER.get()
                     + ",lsoDrink=" + MSpellCompatConfig.LSO_CONSUME_FINITE_WATER_WHEN_DRINKING.get()
                     + ",lsoCanteen=" + MSpellCompatConfig.LSO_CANTEEN_CONSUME_FINITE_WATER.get()
+                    + ",lsoSnowMelt=" + MSpellCompatConfig.LSO_HEAT_SNOW_MELTING_ENABLED.get()
+                    + ",modularBackpacks=" + MSpellCompatConfig.MODULAR_BACKPACKS_FRACTIONAL_TRANSFER_ENABLED.get()
+                    + ",burntWaterEnabled=" + MSpellCompatConfig.BURNT_WATER_EXTINGUISH_ENABLED.get()
                     + ",burntWater=" + MSpellCompatConfig.BURNT_COUNT_FLOWING_FLUIDS_WATER.get()
                     + ",burntLocalRain=" + MSpellCompatConfig.BURNT_REQUIRE_LOCAL_SIMPLE_CLOUDS_RAIN.get());
         } else if (event.getConfig().getSpec() == SableFluidPhysicsConfig.SPEC) {
@@ -86,7 +97,12 @@ public final class MSpellCompat {
                     + ",maxCellsPerSublevel=" + SableFluidRuntimeConfig.MAX_CELLS_PER_SUBLEVEL.get()
                     + ",maxCellsPerPass=" + SableFluidRuntimeConfig.MAX_CELLS_PER_PASS.get()
                     + ",maxTransfers=" + SableFluidRuntimeConfig.MAX_TRANSFERS_PER_SUBLEVEL.get()
-                    + ",unitsPerTransfer=" + SableFluidRuntimeConfig.UNITS_PER_TRANSFER.get());
+                    + ",unitsPerTransfer=" + SableFluidRuntimeConfig.UNITS_PER_TRANSFER.get()
+                    + ",massEnabled=" + SableFluidRuntimeConfig.MASS_INTEGRATION_ENABLED.get()
+                    + ",massScanInterval=" + SableFluidRuntimeConfig.MASS_SCAN_INTERVAL_TICKS.get()
+                    + ",maxMassScanCells=" + SableFluidRuntimeConfig.MASS_MAX_SCAN_CELLS.get()
+                    + ",hullRefresh=" + SableFluidRuntimeConfig.MASS_HULL_REFRESH_TICKS.get()
+                    + ",waterMass=" + SableFluidRuntimeConfig.MASS_WATER_MASS_PER_FULL_BLOCK.get());
         }
         MSpellCompatDebug.log("config", "reloaded", "file=" + event.getConfig().getFileName());
     }
